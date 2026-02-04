@@ -26,7 +26,7 @@ jobs:
           debug: true
           script: |
             set -e 
-            cd /var/www/order
+            cd /var/www/sales-order
 
             # Git SSL fixes
             git config --global http.postBuffer 524288000
@@ -39,4 +39,4 @@ jobs:
             npm run build  
 
             # Restart app with pm2
-            pm2 restart order-app
+            pm2 restart sales-order
