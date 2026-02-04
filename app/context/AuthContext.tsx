@@ -9,7 +9,6 @@ import {
 } from "react";
 import api from "@/api/api";
 import { useRouter } from "next/navigation";
-import { useSalesAuth } from "./SalesAuthContext";
 
 interface User {
   id: number;
@@ -44,7 +43,6 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const router = useRouter();
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const { salesLogout } = useSalesAuth();
 
   // 🔹 Unified function to extract user data
   const extractUserFromResponse = (responseData: any): User | null => {
