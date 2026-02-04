@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 127.0.0.1 -p 3000",
-    "build": "next build",
-    "start": "next start",
-    "lint": "eslint"
-  },
+  "dev": "next dev -H 127.0.0.1 -p 3000",
+  "build": "next build",
+  "start": "next start -H 0.0.0.0 -p 3000",
+  "lint": "eslint"
+},
   "dependencies": {
     "@iconify/react": "^6.0.2",
     "@radix-ui/react-slot": "^1.2.4",
