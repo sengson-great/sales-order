@@ -36,7 +36,7 @@ const BottomNav: React.FC = () => {
     typeof value !== "number" || isNaN(value) ? "$0.00" : `$${value.toFixed(2)}`;
 
   const handleClickCheckout = () => {
-    if (!user) return router.push("/sign-in");
+    if (!user) return router.push("/sign-in-sale");
 
     if (isCheckoutPage) {
       const errors: string[] = [];

@@ -34,7 +34,7 @@
     "@tailwindcss/postcss": "^4",
     "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20",
-    "@types/react": "^19",
+    "@types/react": "^19.2.10",
     "@types/react-dom": "^19",
     "@types/react-toastify": "^4.0.2",
     "baseline-browser-mapping": "^2.9.14",

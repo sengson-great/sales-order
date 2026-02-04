@@ -116,7 +116,7 @@ export default function Signup() {
           <p className="text-center text-[14px] font-medium">
             {t.alreadyHaveAnAccount} {""}
             <span
-              onClick={() => router.push("/sign-in")}
+              onClick={() => router.push("/sign-in-sale")}
               className="text-blue-600 cursor-pointer"
             >
               {t.logInToYourAccount}

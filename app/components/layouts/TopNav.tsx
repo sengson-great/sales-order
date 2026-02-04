@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { usePoints } from "@/context/PointsContext";  // ← New
-import SpinWheelPic from "@/../public/spin-the-wheel.png";
+//import SpinWheelPic from "@/../public/spin-the-wheel.png";
 import Image from "next/image";
 
 const TopNav = () => {
@@ -60,17 +60,17 @@ const TopNav = () => {
 
   const handleProfileClick = () => {
     if (user) router.push("/account");
-    else router.push("/sign-in");
+    else router.push("/sign-in-sale");
   };
 
   const handleWheelClick = () => {
     if (user) router.push("/wheel");
-    else router.push("/sign-in");
+    else router.push("/sign-in-sale");
   };
 
   const handleCustomerViewClick = () => {
     if (user) router.push("/account/shipping-address");
-    else router.push("/sign-in");
+    else router.push("/sign-in-sale");
   };
 
   return (

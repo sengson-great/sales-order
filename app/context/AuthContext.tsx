@@ -224,7 +224,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
     
     setUser(null);
-    router.push("/sign-in");
+    router.push("/sign-in-sale");
   };
 
   return (
