@@ -32,6 +32,14 @@ const containerStyle = { width: "100%", height: "400px" };
 // Pagination configuration
 const ITEMS_PER_PAGE = 5;
 
+// Add this interface for payment method
+type PaymentMethodType = {
+  id: string;
+  name: string;
+  image: string;
+  type: 'default' | 'custom';
+};
+
 const CombinedCheckoutPage = () => {
   const { user, setUser } = useAuth();
   const { salesUser } = useSalesAuth();
@@ -76,14 +84,49 @@ const CombinedCheckoutPage = () => {
   // State to control when to show search results
   const [showSearchResults, setShowSearchResults] = useState(false);
 
-  const paymentMethods = [
-    { name: t.QR, image: "/qr.jpg" },
-    { name: t.cash, image: "/cash.jpg" },
-  ];
-
   const IMAGE_URL = process.env.NEXT_PUBLIC_IMAGE_URL!;
 
   const currentSelectedAddress = selectedAddress === "current" ? currentAddress : selectedAddress;
+
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodType[]>([
+    { name: t.QR, image: "/qr.jpg", id: 'qr', type: 'default' },
+    { name: t.cash, image: "/cash.jpg", id: 'cash', type: 'default' },
+  ]);
+
+  useEffect(() => {
+    const fetchCustomPaymentMethods = async () => {
+      try {
+        setLoading(true);
+        // Call your Laravel API
+        const response = await api.get('/business/1/custom-payments');
+        
+        if (response.data.success && response.data.custom_payments) {
+          // Combine default and custom payment methods
+          const customMethods = response.data.payment_methods
+            .filter((method: any) => method.type === 'custom' && method.name)
+            .map((method: any) => ({
+              id: method.id,
+              name: method.name,
+              image: method.image || '/payment-default.jpg',
+              type: 'custom' as const
+            }));
+          
+          // Update payment methods state
+          setPaymentMethods(prev => [
+            ...prev.filter(m => m.type === 'default'), // Keep default methods
+            ...customMethods // Add custom methods
+          ]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch payment methods:', error);
+        toast.error('Failed to load payment methods');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchCustomPaymentMethods();
+  }, []);
 
   // Check if user is actively searching or has search results
   const isSearching = useMemo(() => {
@@ -367,9 +410,17 @@ const CombinedCheckoutPage = () => {
   };
 
   const handlePaymentMethodSelect = (methodName: string) => {
-    setPaymentMethod(methodName);
-    if (methodName === "QR") {
-      setShowQRPopup(true);
+    const selectedMethod = paymentMethods.find(m => m.name === methodName);
+    
+    if (selectedMethod) {
+      setPaymentMethod(methodName);
+      
+      if (methodName === "QR") {
+        setShowQRPopup(true);
+      } else if (selectedMethod.type === 'custom') {
+        // Handle custom payment method selection
+        toast.info(`Selected custom payment: ${methodName}`);
+      }
     }
   };
 
@@ -923,31 +974,40 @@ const CombinedCheckoutPage = () => {
           {/* Payment Method */}
           <section className="flex flex-col gap-3">
             <h2 className="text-2xl font-semibold text-gray-800">{t.paymentMethod}</h2>
-            {paymentMethods.map((method) => (
-              <div
-                key={method.name}
-                onClick={() => handlePaymentMethodSelect(method.name)}
-                className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${paymentMethod === method.name
-                    ? "border-blue-500 bg-blue-50 shadow-lg"
-                    : "border-gray-200 hover:shadow-md"
-                  }`}
-              >
-                <div className="flex items-center gap-4">
-                  <img
-                    src={method.image}
-                    alt={method.name}
-                    className="w-12 h-12 object-contain"
-                    onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
-                  />
-                  <p className="font-semibold text-gray-700">{method.name}</p>
-                </div>
-                {paymentMethod === method.name && method.name !== "QR" && (
-                  <p className="text-sm text-gray-500 mt-2">
-                    You will pay with cash upon delivery
-                  </p>
-                )}
-              </div>
-            ))}
+
+                {/* Custom Payment Methods */}
+                {paymentMethods
+                  .filter(method => method.type === 'custom')
+                  .map((method) => (
+                    <div
+                      key={method.id}
+                      onClick={() => handlePaymentMethodSelect(method.name)}
+                      className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
+                        paymentMethod === method.name
+                          ? "border-green-500 bg-green-50 shadow-lg"
+                          : "border-gray-200 hover:shadow-md"
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <img
+                          src={method.image}
+                          alt={method.name}
+                          className="w-12 h-12 object-contain"
+                          onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
+                        />
+                        <div>
+                          <p className="font-semibold text-gray-700">{method.name}</p>
+                          <p className="text-xs text-gray-500">Custom Payment Method</p>
+                        </div>
+                      </div>
+                      {paymentMethod === method.name && (
+                        <p className="text-sm text-gray-500 mt-2">
+                          Pay with {method.name}
+                        </p>
+                      )}
+                    </div>
+                  ))
+                }
           </section>
         </>
       )}
