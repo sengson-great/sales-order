@@ -654,7 +654,7 @@ const CombinedCheckoutPage = () => {
                     className="p-2 border rounded-lg text-white cursor-pointer bg-blue-500 hover:bg-blue-600"
                     placeholder={t.clickToSelectLocation}
                   />}
-                  {salesUser?.role === 'salesOnPlace' &&<input
+                  {salesUser?.role === 'salesOnField' &&<input
                     type="button"
                     readOnly
                     value={t.currentLocation}

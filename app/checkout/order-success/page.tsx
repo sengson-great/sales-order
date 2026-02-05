@@ -163,9 +163,7 @@ const page = () => {
           ctx.fillStyle = '#1e293b';
           ctx.textAlign = 'left';
           
-          const productName = item.product_name.length > 25 
-            ? item.product_name.substring(0, 22) + '...' 
-            : item.product_name;
+          const productName = item.product_name;
           ctx.fillText(productName, 20, y);
           
           ctx.textAlign = 'right';
