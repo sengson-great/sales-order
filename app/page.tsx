@@ -37,6 +37,7 @@ export default function ProductPage() {
   const [selectedCategory, setSelectedCategory] = useState<string>(t.all);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [allProducts, setAllProducts] = useState<ProductData[]>([]);
+  const [filteredProducts, setFilteredProducts] = useState<ProductData[]>([]);
   const [categories, setCategories] = useState<CategoryData[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -169,25 +170,6 @@ export default function ProductPage() {
     }
   }, []);
 
-  // Only fetch once on mount to populate the master list
-  useEffect(() => {
-    const init = async () => {
-      const cached = loadProductsFromCache();
-      if (cached) {
-        setAllProducts(cached);
-        setIsUsingCache(true);
-        setIsLoading(false);
-      }
-      
-      // Always fetch fresh "All" data in the background to sync
-      fetchProducts(t.all, "", false);
-    };
-    
-    if (categories.length > 0) {
-      init();
-    }
-  }, [categories.length, t.all]);
-
   // Fetch products based on selected category with cache support
   const fetchProducts = useCallback(async (category: string, search: string, forceRefresh: boolean = false) => {
     if (isFetching.current) return;
@@ -197,90 +179,144 @@ export default function ProductPage() {
     isFetching.current = true;
     
     try {
-      // 1. If we are looking for "All" and have cache, use it immediately
       const isAll = category === t.all || category === "All" || category === "ទាំងអស់";
       
+      // Check cache first if not forcing refresh and not searching
       if (!forceRefresh && isAll && !search.trim()) {
-        const cached = loadProductsFromCache();
-        if (cached) {
-          setAllProducts(cached);
+        const cachedProducts = loadProductsFromCache();
+        if (cachedProducts && cachedProducts.length > 0) {
+          setAllProducts(cachedProducts);
+          setFilteredProducts(cachedProducts);
           setIsUsingCache(true);
-          // If we have cache, we still fetch in the background to update, 
-          // but we stop the loading spinner for better UX
-          setIsLoading(false); 
+          setIsLoading(false);
         }
       }
-  
-      // 2. Build Request
+      
+      // Check in-memory category cache
+      if (!forceRefresh && categoryCache[category] && !search.trim() && !isAll) {
+        setFilteredProducts(categoryCache[category]);
+        setIsLoading(false);
+        isFetching.current = false;
+        return;
+      }
+      
+      // Build URL for API call
       let url = "/product/all";
       const params = new URLSearchParams();
-      if (!isAll) params.append('category', category);
-      if (search.trim()) params.append('search', search);
       
-      const res = await api.get(`${url}${params.toString() ? `?${params.toString()}` : ''}`);
-      const productsData = res.data?.data || res.data || [];
-  
+      if (!isAll) {
+        params.append('category', category);
+      }
+      
+      if (search.trim()) {
+        params.append('search', search);
+      }
+      
+      const queryString = params.toString();
+      if (queryString) {
+        url += `?${queryString}`;
+      }
+      
+      console.log(`Fetching products from API: ${url}`);
+      
+      const res = await api.get(url);
+      let productsData: ProductData[] = [];
+      
+      // Handle different response formats
+      if (Array.isArray(res.data)) {
+        productsData = res.data;
+      } else if (res.data?.data && Array.isArray(res.data.data)) {
+        productsData = res.data.data;
+      }
+      
+      console.log(`API returned ${productsData.length} products for category: ${category}`);
+      
       if (Array.isArray(productsData)) {
-        setAllProducts(productsData);
+        if (isAll && !search.trim()) {
+          // For "All" category, update the master list
+          setAllProducts(productsData);
+          setFilteredProducts(productsData);
+          
+          // Save to localStorage if fetching all products without search
+          if (productsData.length > 0) {
+            saveProductsToCache(productsData);
+          }
+        } else {
+          // For specific category, only update filtered products
+          setFilteredProducts(productsData);
+        }
+        
         setIsUsingCache(false);
         
-        // Update persistent cache only if it's the "All" list
-        if (isAll && !search.trim()) {
-          saveProductsToCache(productsData);
+        // Cache the results if not searching
+        if (!search.trim() && productsData.length > 0) {
+          setCategoryCache(prev => ({
+            ...prev,
+            [category]: productsData
+          }));
         }
       }
+      
     } catch (err: any) {
-      setError("Failed to sync products. Showing offline data.");
-      const cached = loadProductsFromCache();
-      if (cached) setAllProducts(cached);
+      console.error("Error fetching products:", err);
+      setError(`Failed to load products: ${err.message}`);
+      
+      // Try to use cache as fallback
+      if (category === t.all || category === "All" || category === "ទាំងអស់") {
+        const cachedProducts = loadProductsFromCache();
+        if (cachedProducts && cachedProducts.length > 0) {
+          setAllProducts(cachedProducts);
+          setFilteredProducts(cachedProducts);
+          setIsUsingCache(true);
+          setError(`Network error. Showing cached products (${cachedProducts.length} items)`);
+        }
+      } else if (categoryCache[category] && !search.trim()) {
+        // Use in-memory category cache
+        setFilteredProducts(categoryCache[category]);
+        setIsUsingCache(true);
+        setError(`Network error. Showing cached category products.`);
+      }
     } finally {
       setIsLoading(false);
       isFetching.current = false;
     }
-  }, [t.all]);
+  }, [categoryCache, t.all]);
 
-  const filteredData = useMemo(() => {
-    const isAll = selectedCategory === t.all || selectedCategory === "All" || selectedCategory === "ទាំងអស់";
-    
-    return allProducts.filter((item) => {
-      // 1. Category Matching (Safely handle missing category_name)
-      const itemCategory = item.product?.category_name?.toLowerCase() || "";
-      const selected = selectedCategory.toLowerCase();
-      const matchesCategory = isAll || itemCategory === selected;
-  
-      // 2. Search Matching
-      const matchesSearch = item.product?.name
-        ?.toLowerCase()
-        .includes(searchQuery.toLowerCase());
-  
-      return matchesCategory && matchesSearch;
-    });
-  }, [allProducts, selectedCategory, searchQuery, t.all]);
-
-  // Fetch all products on mount (after categories are loaded)
+  // Load initial products from cache on mount
   useEffect(() => {
-    if (categories.length > 0 && allProducts.length === 0 && !isUsingCache) {
-      console.log('Initial fetch of all products');
-      fetchProducts(t.all, "", false);
+    if (categories.length > 0 && !hasInitialized.current) {
+      const cachedProducts = loadProductsFromCache();
+      if (cachedProducts && cachedProducts.length > 0) {
+        setAllProducts(cachedProducts);
+        setFilteredProducts(cachedProducts);
+        setIsUsingCache(true);
+        setIsLoading(false);
+        console.log('Initialized products from cache on mount:', cachedProducts.length);
+      } else {
+        // Fetch all products if no cache
+        fetchProducts(t.all, "", false);
+      }
+      hasInitialized.current = true;
     }
-  }, [categories.length, t.all, allProducts.length, isUsingCache, fetchProducts]);
+  }, [categories.length, t.all, fetchProducts]);
 
   // Fetch products when category or search changes
   useEffect(() => {
     if (categories.length > 0 && selectedCategory) {
       const isSearching = searchQuery.trim().length > 0;
-      const isAllCategory = selectedCategory === "All" || selectedCategory === "ទាំងអស់";
+      const isAllCategory = selectedCategory === t.all || selectedCategory === "All" || selectedCategory === "ទាំងអស់";
       
       // Don't fetch if we already have data and not searching
       if (!isSearching && !isAllCategory && categoryCache[selectedCategory]) {
         console.log(`Already have cached data for "${selectedCategory}", skipping fetch`);
+        setFilteredProducts(categoryCache[selectedCategory]);
         return;
       }
       
       console.log(`Fetching for category: "${selectedCategory}", search: "${searchQuery}"`);
       fetchProducts(selectedCategory, searchQuery, false);
     }
-  }, [selectedCategory, searchQuery, categories.length, fetchProducts, categoryCache]);
+  }, [selectedCategory, searchQuery, categories.length, fetchProducts, categoryCache, t.all]);
 
   // Handle category selection
   const handleCategorySelect = (category: string) => {
@@ -296,7 +332,7 @@ export default function ProductPage() {
     fetchProducts(selectedCategory, searchQuery, true);
   };
 
-  console.log(`Current state: Category="${selectedCategory}", Search="${searchQuery}", Products=${allProducts.length}, UsingCache=${isUsingCache}`);
+  console.log(`Current state: Category="${selectedCategory}", Search="${searchQuery}", AllProducts=${allProducts.length}, Filtered=${filteredProducts.length}, UsingCache=${isUsingCache}`);
 
   return (
     <div className="flex flex-col flex-1 hide-scrollbar">
@@ -372,17 +408,38 @@ export default function ProductPage() {
             <div className="flex justify-between items-center p-2">
               <div className="flex items-center gap-2">
                 <span className="text-sm text-gray-500">
-                  Showing {allProducts.length} products
-                  {selectedCategory !== "All" && selectedCategory !== "ទាំងអស់" && ` in "${selectedCategory}"`}
+                  Showing {filteredProducts.length} products
+                  {selectedCategory !== "All" && selectedCategory !== "ទាំងអស់" && selectedCategory !== t.all && ` in "${selectedCategory}"`}
                   {searchQuery && ` matching "${searchQuery}"`}
                 </span>
+                {isUsingCache && (
+                  <span className="text-xs text-green-600 bg-green-100 px-2 py-1 rounded-full">
+                    Cached
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleRefresh}
+                  className="text-sm text-blue-500 hover:text-blue-700"
+                  title="Refresh data"
+                >
+                  Refresh
+                </button>
+                <button
+                  onClick={clearCache}
+                  className="text-sm text-gray-500 hover:text-gray-700"
+                  title="Clear cache"
+                >
+                  Clear Cache
+                </button>
               </div>
             </div>
             <Products 
               selectedCategory={selectedCategory} 
               searchQuery={searchQuery}
               allProducts={allProducts}
-              filteredProducts={filteredData}
+              filteredProducts={filteredProducts}
             />
           </div>
         )}
