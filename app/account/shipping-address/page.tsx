@@ -17,6 +17,7 @@ export type Address = {
   phone?: string;
   details?: string;
   coordinates?: { lat: number; lng: number };
+  location_image?: string; // Added for location image
 };
 
 const containerStyle = { width: "100%", height: "400px" };
@@ -25,6 +26,7 @@ const DEFAULT_ITEMS_PER_PAGE = 10;
 
 export default function ShippingAddressPage() {
   const { user } = useAuth();
+  const { salesUser } = useSalesAuth(); // Get sales user context
   const { setLoading } = useLoading();
   const { t } = useLanguage();
 
@@ -45,11 +47,19 @@ export default function ShippingAddressPage() {
     phone: "",
     details: "",
     coordinates: undefined,
-    api_user_id: user?.id || undefined
+    api_user_id: user?.id || salesUser?.id || undefined,
+    location_image: ""
   });
 
   // Current location detection state
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationImage, setLocationImage] = useState<File | null>(null);
+  const [imagePreview, setImagePreview] = useState<string>("");
+
+  // Determine if user is salesOnField
+  const isSalesOnField = useMemo(() => {
+    return salesUser?.role === 'salesOnField';
+  }, [salesUser]);
 
   async function fetchAddress() {
     setLoading(true);
@@ -69,7 +79,7 @@ export default function ShippingAddressPage() {
     fetchAddress();
   }, [setLoading]);
 
-  // Current location detection function
+  // Current location detection function - simplified for salesOnField
   const handleDetectCurrentLocation = async () => {
     if (!navigator.geolocation) {
       toast.error("Geolocation is not supported by your browser");
@@ -94,16 +104,19 @@ export default function ShippingAddressPage() {
       setNewAddress(prev => ({
         ...prev,
         coordinates: coordinates,
-        label: prev.label || "Current Location",
-        details: prev.details || `Current Location (${latitude.toFixed(6)}, ${longitude.toFixed(6)})`
+        label: prev.label || (isSalesOnField ? "Customer Location" : "Current Location"),
+        details: prev.details || (isSalesOnField 
+          ? `Customer location at ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
+          : `Current Location (${latitude.toFixed(6)}, ${longitude.toFixed(6)})`
+        )
       }));
 
       toast.success("Current location detected successfully!");
       
-      // If map modal is open, update the map view
-      if (showMapModal) {
+      // For salesOnField, we don't show the map modal
+      if (!isSalesOnField && showMapModal) {
         setShowMapModal(true); // Keep modal open with new location
-      } else {
+      } else if (!isSalesOnField) {
         setShowMapModal(true); // Open map modal to show the location
       }
       
@@ -127,6 +140,40 @@ export default function ShippingAddressPage() {
     } finally {
       setIsDetectingLocation(false);
     }
+  };
+
+  // Handle image upload
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        toast.error("Please upload an image file");
+        return;
+      }
+
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image size should be less than 5MB");
+        return;
+      }
+
+      setLocationImage(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  // Remove uploaded image
+  const handleRemoveImage = () => {
+    setLocationImage(null);
+    setImagePreview("");
+    setNewAddress(prev => ({ ...prev, location_image: "" }));
   };
 
   // Filter addresses based on search query
@@ -159,13 +206,24 @@ export default function ShippingAddressPage() {
 
   const handleSaveAddress = async () => {
     // Validation
-    if (!newAddress.label || !newAddress.details || !newAddress.coordinates) {
-      toast.error("Please fill in all required fields and select location on map.");
+    if (!newAddress.label || !newAddress.details) {
+      toast.error("Please fill in all required fields.");
       return;
     }
 
-    // For sales: label is customer name, require phone
-    if (user?.role === "sale") {
+    // For salesOnField: require location and phone
+    if (isSalesOnField) {
+      if (!newAddress.phone) {
+        toast.error("Please enter customer phone number");
+        return;
+      }
+      if (!newAddress.coordinates) {
+        toast.error("Please detect current location");
+        return;
+      }
+    }
+    // For regular sales: require phone
+    else if (salesUser?.role === "sale") {
       if (!newAddress.phone) {
         toast.error("Please enter customer phone number");
         return;
@@ -185,39 +243,81 @@ export default function ShippingAddressPage() {
 
     setLoading(true);
     try {
+      const formData = new FormData();
+      formData.append('label', newAddress.label.trim());
+      formData.append('details', newAddress.details.trim());
+      formData.append('api_user_id', newAddress.api_user_id.toString());
+      
+      if (newAddress.phone) {
+        formData.append('phone', newAddress.phone.trim());
+      }
+      
+      if (newAddress.coordinates) {
+        formData.append('coordinates[lat]', newAddress.coordinates.lat.toString());
+        formData.append('coordinates[lng]', newAddress.coordinates.lng.toString());
+      }
+      
+      // Append image if uploaded
+      if (locationImage) {
+        formData.append('location_image', locationImage);
+      }
+
+      let saved: Address;
+      
       if (isEditing && editingId) {
         // Edit existing address
         console.log("Editing address ID:", editingId, "Data:", newAddress);
         
-        const res = await api.put(`/addresses/${editingId}`, {
-          ...newAddress,
-          label: newAddress.label.trim(),
-          phone: newAddress.phone?.trim() || user?.phone || user?.mobile || "",
-          details: newAddress.details.trim(),
-          coordinates: newAddress.coordinates,
-          api_user_id: newAddress.api_user_id
-        });
+        if (locationImage) {
+          formData.append('_method', 'PUT');
+          const res = await api.post(`/addresses/${editingId}`, formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            }
+          });
+          saved = res.data.data;
+        } else {
+          const res = await api.put(`/addresses/${editingId}`, {
+            ...newAddress,
+            label: newAddress.label.trim(),
+            phone: newAddress.phone?.trim() || user?.phone || user?.mobile || "",
+            details: newAddress.details.trim(),
+            coordinates: newAddress.coordinates,
+            api_user_id: newAddress.api_user_id
+          });
+          saved = res.data.data;
+        }
         
-        const updated: Address = res.data.data;
-        console.log("Updated address response:", updated);
+        console.log("Updated address response:", saved);
         
         setSavedAddresses(prev => 
-          prev.map(addr => addr.id === editingId ? updated : addr)
+          prev.map(addr => addr.id === editingId ? saved : addr)
         );
-        setSelectedAddress(updated.id ?? null);
+        setSelectedAddress(saved.id ?? null);
         toast.success(t.addressUpdatedSuccessfully || "Address updated successfully");
         
         fetchAddress();
       } else {
         // Add new address
         console.log("Adding new address:", newAddress);
-        const res = await api.post("/addresses", {
-          ...newAddress,
-          label: newAddress.label.trim(),
-          phone: newAddress.phone?.trim() || user?.phone || user?.mobile || "",
-          details: newAddress.details.trim()
-        });
-        const saved: Address = res.data.data;
+        
+        if (locationImage) {
+          const res = await api.post("/addresses", formData, {
+            headers: {
+              'Content-Type': 'multipart/form-data'
+            }
+          });
+          saved = res.data.data;
+        } else {
+          const res = await api.post("/addresses", {
+            ...newAddress,
+            label: newAddress.label.trim(),
+            phone: newAddress.phone?.trim() || user?.phone || user?.mobile || "",
+            details: newAddress.details.trim()
+          });
+          saved = res.data.data;
+        }
+        
         console.log("Saved address response:", saved);
         
         setSavedAddresses(prev => [...prev, saved]);
@@ -250,13 +350,18 @@ export default function ShippingAddressPage() {
     console.log("Editing address:", address);
     setNewAddress({
       ...address,
-      api_user_id: user?.id || undefined,
+      api_user_id: user?.id || salesUser?.id || undefined,
       coordinates: address.coordinates || undefined
     });
     setEditingId(address.id || null);
     setIsEditing(true);
     setShowFormModal(true);
     setSelectedAddress(address.id || null);
+    
+    // Set image preview if exists
+    if (address.location_image) {
+      setImagePreview(address.location_image);
+    }
   };
 
   const handleAddNew = () => {
@@ -309,14 +414,17 @@ export default function ShippingAddressPage() {
   const resetForm = () => {
     setNewAddress({
       label: "",
-      phone: user?.role === "sale" ? "" : user?.phone || user?.mobile || "",
+      phone: (salesUser?.role === "sale" || isSalesOnField) ? "" : user?.phone || user?.mobile || "",
       details: "",
       coordinates: undefined,
-      api_user_id: user?.id || undefined
+      api_user_id: user?.id || salesUser?.id || undefined,
+      location_image: ""
     });
     setIsEditing(false);
     setEditingId(null);
     setShowMapModal(false);
+    setLocationImage(null);
+    setImagePreview("");
   };
 
   const handleCancel = () => {
@@ -359,13 +467,21 @@ export default function ShippingAddressPage() {
 
   return (
     <div className="flex flex-col h-full gap-6">
-      <Header title={user?.role === "sale" ? "Customer Information" : t.shippingAddress} />
+      <Header title={
+        isSalesOnField ? "Field Customer Management" : 
+        salesUser?.role === "sale" ? "Customer Information" : 
+        t.shippingAddress
+      } />
 
       {/* Search Bar */}
       <div className="relative">
         <input
           type="text"
-          placeholder="Search by name, phone, or address..."
+          placeholder={
+            isSalesOnField ? "Search field customers by name or phone..." :
+            salesUser?.role === "sale" ? "Search customers by name or phone..." :
+            "Search by name, phone, or address..."
+          }
           value={searchQuery}
           onChange={(e) => setSearchQuery(e.target.value)}
           className="w-full p-3 pl-10 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
@@ -387,7 +503,10 @@ export default function ShippingAddressPage() {
         )}
         <div className="mt-2 flex justify-between items-center">
            <div className="text-sm text-gray-500">
-            Showing {paginatedAddresses.length} of {totalItems} { user?.role === "sale" ? "customers" : "addresses"}
+            Showing {paginatedAddresses.length} of {totalItems} { 
+              isSalesOnField ? "field customers" :
+              salesUser?.role === "sale" ? "customers" : "addresses"
+            }
             {searchQuery.trim() && ` (filtered from ${savedAddresses.length} total)`}
           </div>
           {/* Add New Button */}
@@ -396,7 +515,8 @@ export default function ShippingAddressPage() {
             className="mt-4 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center gap-2"
           >
             <span className="text-xl">+</span>
-            {user?.role === "sale" ? "Add New Customer" : t.addNewAddress}
+            {isSalesOnField ? "Add Field Customer" :
+             salesUser?.role === "sale" ? "Add New Customer" : t.addNewAddress}
           </button>
         </div>
       </div>
@@ -429,13 +549,15 @@ export default function ShippingAddressPage() {
           <div className="text-center py-8 text-gray-500">
             {searchQuery.trim() ? (
               <div>
-                <p>No addresses found for "{searchQuery}"</p>
+                <p>No {isSalesOnField ? 'field customers' : salesUser?.role === 'sale' ? 'customers' : 'addresses'} found for "{searchQuery}"</p>
                 <p className="text-sm mt-1">Try a different search term</p>
               </div>
             ) : (
-              user?.role === "sale" 
-                ? "No customers saved yet. Add your first customer below."
-                : t.noSavedAddressesYetAddYourFirstAddressBelow
+              isSalesOnField 
+                ? "No field customers saved yet. Add your first customer below."
+                : salesUser?.role === "sale" 
+                  ? "No customers saved yet. Add your first customer below."
+                  : t.noSavedAddressesYetAddYourFirstAddressBelow
             )}
           </div>
         ) : (
@@ -454,6 +576,11 @@ export default function ShippingAddressPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-lg">{addr.label}</span>
+                      {isSalesOnField && addr.location_image && (
+                        <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
+                          📍 Has Location Photo
+                        </span>
+                      )}
                     </div>
                     <p className="text-gray-600 text-sm mt-1">{addr.details}</p>
                     <p className="text-gray-600 text-sm mt-1">
@@ -461,7 +588,7 @@ export default function ShippingAddressPage() {
                     </p>
                     {addr.coordinates && (
                       <p className="text-gray-500 text-xs mt-1">
-                        Lat: {addr.coordinates.lat.toFixed(5)}, Lng: {addr.coordinates.lng.toFixed(5)}
+                        📍 Lat: {addr.coordinates.lat.toFixed(5)}, Lng: {addr.coordinates.lng.toFixed(5)}
                       </p>
                     )}
                   </div>
@@ -540,8 +667,10 @@ export default function ShippingAddressPage() {
             <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
               <h3 className="text-lg font-semibold text-gray-800">
                 {isEditing 
-                  ? (user?.role === "sale" ? "Edit Customer" : "Edit Address")
-                  : (user?.role === "sale" ? "Add New Customer" : "Add New Address")
+                  ? (isSalesOnField ? "Edit Field Customer" : 
+                     salesUser?.role === "sale" ? "Edit Customer" : "Edit Address")
+                  : (isSalesOnField ? "Add Field Customer" : 
+                     salesUser?.role === "sale" ? "Add New Customer" : "Add New Address")
                 }
               </h3>
               <button
@@ -557,11 +686,13 @@ export default function ShippingAddressPage() {
               {/* Name/Label Field */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {user?.role === "sale" ? "Customer Name *" : "Address Label *"}
+                  {isSalesOnField ? "Customer Name *" : 
+                   salesUser?.role === "sale" ? "Customer Name *" : "Address Label *"}
                 </label>
                 <input
                   type="text"
-                  placeholder={user?.role === "sale" ? "Enter customer name" : "Home, Work, etc."}
+                  placeholder={isSalesOnField ? "Enter customer name" : 
+                              salesUser?.role === "sale" ? "Enter customer name" : "Home, Work, etc."}
                   className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   value={newAddress.label}
                   onChange={(e) => setNewAddress({ ...newAddress, label: e.target.value })}
@@ -571,9 +702,9 @@ export default function ShippingAddressPage() {
               {/* Phone Field */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Phone {user?.role === "sale" ? "*" : ""}
+                  Phone {isSalesOnField || salesUser?.role === "sale" ? "*" : ""}
                 </label>
-                {user?.role !== "sale" && getUserPhone() ? (
+                {!isSalesOnField && user?.role !== "sale" && getUserPhone() ? (
                   <div className="space-y-3 mb-3">
                     <div className="flex items-center gap-3">
                       <input
@@ -606,107 +737,227 @@ export default function ShippingAddressPage() {
                 
                 <input
                   type="tel"
-                  placeholder={user?.role === "sale" ? "Customer phone number" : "Phone number"}
+                  placeholder={
+                    isSalesOnField ? "Customer phone number" : 
+                    salesUser?.role === "sale" ? "Customer phone number" : "Phone number"
+                  }
                   className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
-                    user?.role !== "sale" && !newAddress.phone && !!getUserPhone() 
+                    !isSalesOnField && user?.role !== "sale" && !newAddress.phone && !!getUserPhone() 
                       ? "bg-gray-100 cursor-not-allowed" 
                       : ""
                   }`}
                   value={newAddress.phone || ""}
                   onChange={(e) => setNewAddress({ ...newAddress, phone: e.target.value })}
-                  disabled={user?.role !== "sale" && !newAddress.phone && !!getUserPhone()}
+                  disabled={!isSalesOnField && user?.role !== "sale" && !newAddress.phone && !!getUserPhone()}
                 />
               </div>
 
               {/* Address Details */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  {user?.role === "sale" ? "Delivery Address *" : "Address Details *"}
+                  {isSalesOnField ? "Location Details *" : 
+                   salesUser?.role === "sale" ? "Delivery Address *" : "Address Details *"}
                 </label>
                 <div className="space-y-3">
                   <textarea
-                    placeholder={user?.role === "sale" 
-                      ? "Street, building, floor, delivery notes..." 
-                      : "Full address details..."
+                    placeholder={
+                      isSalesOnField ? "Describe the customer location, landmark, or any details..." : 
+                      salesUser?.role === "sale" 
+                        ? "Street, building, floor, delivery notes..." 
+                        : "Full address details..."
                     }
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     value={newAddress.details}
                     onChange={(e) => setNewAddress({ ...newAddress, details: e.target.value })}
                     rows={3}
                   />
-                  
-                  {/* Current Location Detection Button */}
-                  <button
-                    type="button"
-                    onClick={handleDetectCurrentLocation}
-                    disabled={isDetectingLocation}
-                    className={`w-full p-3 border rounded-lg flex items-center justify-center gap-2 ${
-                      isDetectingLocation 
-                        ? "bg-gray-100 text-gray-500 cursor-wait" 
-                        : "bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200"
-                    }`}
-                  >
-                    {isDetectingLocation ? (
-                      <>
-                        <svg className="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                        </svg>
-                        <span>Detecting location...</span>
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
-                        </svg>
-                        <span>Use Current Location</span>
-                      </>
-                    )}
-                  </button>
                 </div>
               </div>
 
-              {/* Location Selection */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  Location on Map *
-                </label>
-                <div 
-                  onClick={() => setShowMapModal(true)}
-                  className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors flex flex-col items-center justify-center text-center"
-                >
-                  {newAddress.coordinates ? (
-                    <div className="text-center">
-                      <div className="text-green-600 text-lg mb-1">✓ Location Selected</div>
-                      <p className="text-sm text-gray-600">
-                        Lat: {newAddress.coordinates.lat.toFixed(6)}
-                        <br />
-                        Lng: {newAddress.coordinates.lng.toFixed(6)}
-                      </p>
-                      {newAddress.details && (
-                        <p className="text-xs text-gray-500 mt-2 truncate max-w-full">
-                          {newAddress.details}
-                        </p>
+              {/* Location Detection for Sales On Field - One Click */}
+              {isSalesOnField && (
+                <div className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Customer Location *
+                    </label>
+                    
+                    {/* Current Location Detection Button - One Click */}
+                    <button
+                      type="button"
+                      onClick={handleDetectCurrentLocation}
+                      disabled={isDetectingLocation}
+                      className={`w-full p-4 border rounded-lg flex flex-col items-center justify-center gap-3 ${
+                        isDetectingLocation 
+                          ? "bg-gray-100 text-gray-500 cursor-wait" 
+                          : newAddress.coordinates
+                            ? "bg-green-50 text-green-700 border-green-300"
+                            : "bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200"
+                      }`}
+                    >
+                      {isDetectingLocation ? (
+                        <>
+                          <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span className="text-lg font-medium">Detecting location...</span>
+                        </>
+                      ) : newAddress.coordinates ? (
+                        <>
+                          <div className="text-3xl">📍</div>
+                          <div className="text-center">
+                            <span className="text-lg font-medium">Location Detected ✓</span>
+                            <p className="text-sm mt-1">
+                              Lat: {newAddress.coordinates.lat.toFixed(6)}
+                              <br />
+                              Lng: {newAddress.coordinates.lng.toFixed(6)}
+                            </p>
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="text-3xl">📍</div>
+                          <div className="text-center">
+                            <span className="text-lg font-medium">Click to Detect Location</span>
+                            <p className="text-sm mt-1">One click to get current GPS location</p>
+                          </div>
+                        </>
                       )}
-                      <p className="text-xs text-blue-600 mt-2">Click to change location</p>
-                    </div>
-                  ) : (
-                    <>
-                      <div className="text-gray-400 text-2xl mb-2">📍</div>
-                      <p className="text-gray-600 font-medium">Click to select location on map</p>
-                      <p className="text-sm text-gray-500 mt-1">
-                        Select your location by clicking on the map
+                    </button>
+                    
+                    {!newAddress.coordinates && !isDetectingLocation && (
+                      <p className="text-sm text-red-500 mt-2">
+                        Please click the button above to detect your current location
                       </p>
-                    </>
+                    )}
+                  </div>
+
+                  {/* Location Image Upload for Sales On Field */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Location Photo (Optional)
+                    </label>
+                    <div className="space-y-3">
+                      {imagePreview ? (
+                        <div className="relative">
+                          <img 
+                            src={imagePreview} 
+                            alt="Location preview" 
+                            className="w-full h-48 object-cover rounded-lg"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleRemoveImage}
+                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
+                          >
+                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                          </button>
+                          <p className="text-xs text-gray-500 mt-1 text-center">
+                            Click the X to remove photo
+                          </p>
+                        </div>
+                      ) : (
+                        <label className="block cursor-pointer">
+                          <div className="w-full p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors flex flex-col items-center justify-center text-center">
+                            <div className="text-gray-400 text-3xl mb-3">📸</div>
+                            <p className="text-gray-600 font-medium">Upload Location Photo</p>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Take a photo of the customer's location
+                            </p>
+                            <p className="text-xs text-gray-400 mt-2">Max 5MB, JPG/PNG format</p>
+                          </div>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            capture="environment"
+                            onChange={handleImageUpload}
+                            className="hidden"
+                          />
+                        </label>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Location Selection for Regular Users */}
+              {!isSalesOnField && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Location on Map *
+                  </label>
+                  <div className="space-y-3">
+                    {/* Current Location Detection Button */}
+                    <button
+                      type="button"
+                      onClick={handleDetectCurrentLocation}
+                      disabled={isDetectingLocation}
+                      className={`w-full p-3 border rounded-lg flex items-center justify-center gap-2 ${
+                        isDetectingLocation 
+                          ? "bg-gray-100 text-gray-500 cursor-wait" 
+                          : "bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200"
+                      }`}
+                    >
+                      {isDetectingLocation ? (
+                        <>
+                          <svg className="animate-spin h-5 w-5 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                          </svg>
+                          <span>Detecting location...</span>
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                          </svg>
+                          <span>Use Current Location</span>
+                        </>
+                      )}
+                    </button>
+
+                    {/* Map Selection Button */}
+                    <div 
+                      onClick={() => setShowMapModal(true)}
+                      className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors flex flex-col items-center justify-center text-center"
+                    >
+                      {newAddress.coordinates ? (
+                        <div className="text-center">
+                          <div className="text-green-600 text-lg mb-1">✓ Location Selected</div>
+                          <p className="text-sm text-gray-600">
+                            Lat: {newAddress.coordinates.lat.toFixed(6)}
+                            <br />
+                            Lng: {newAddress.coordinates.lng.toFixed(6)}
+                          </p>
+                          {newAddress.details && (
+                            <p className="text-xs text-gray-500 mt-2 truncate max-w-full">
+                              {newAddress.details}
+                            </p>
+                          )}
+                          <p className="text-xs text-blue-600 mt-2">Click to change location</p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="text-gray-400 text-2xl mb-2">📍</div>
+                          <p className="text-gray-600 font-medium">Click to select location on map</p>
+                          <p className="text-sm text-gray-500 mt-1">
+                            Select your location by clicking on the map
+                          </p>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                  {!newAddress.coordinates && (
+                    <p className="text-sm text-red-500 mt-2">
+                      Please select a location on the map
+                    </p>
                   )}
                 </div>
-                {!newAddress.coordinates && (
-                  <p className="text-sm text-red-500 mt-2">
-                    Please select a location on the map
-                  </p>
-                )}
-              </div>
+              )}
             </div>
 
             {/* Modal Footer */}
@@ -723,15 +974,18 @@ export default function ShippingAddressPage() {
                   disabled={
                     !newAddress.label || 
                     !newAddress.details || 
-                    !newAddress.coordinates ||
-                    (user?.role === "sale" && !newAddress.phone) ||
-                    (user?.role !== "sale" && !newAddress.phone && !getUserPhone())
+                    (isSalesOnField && (!newAddress.phone || !newAddress.coordinates)) ||
+                    (salesUser?.role === "sale" && !newAddress.phone) ||
+                    (!isSalesOnField && !newAddress.coordinates) ||
+                    (!isSalesOnField && user?.role !== "sale" && !newAddress.phone && !getUserPhone())
                   }
                   className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
                 >
                   {isEditing 
-                    ? (user?.role === "sale" ? "Update Customer" : "Save Changes")
-                    : (user?.role === "sale" ? "Save Customer" : "Save Address")
+                    ? (isSalesOnField ? "Update Field Customer" : 
+                       salesUser?.role === "sale" ? "Update Customer" : "Save Changes")
+                    : (isSalesOnField ? "Save Field Customer" : 
+                       salesUser?.role === "sale" ? "Save Customer" : "Save Address")
                   }
                 </button>
               </div>
@@ -740,8 +994,8 @@ export default function ShippingAddressPage() {
         </div>
       )}
 
-      {/* Map Modal */}
-      {showMapModal && (
+      {/* Map Modal - Only show for non-salesOnField users */}
+      {showMapModal && !isSalesOnField && (
         <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-[60] p-4">
           <div className="bg-white rounded-lg p-4 w-[90%] max-w-2xl max-h-[90vh] overflow-auto">
             <div className="flex justify-between items-center mb-4">
