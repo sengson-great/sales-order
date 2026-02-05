@@ -169,19 +169,24 @@ export default function ProductPage() {
     }
   }, []);
 
-  // Initialize products from cache on first render
+  // Only fetch once on mount to populate the master list
   useEffect(() => {
-    if (!hasInitialized.current && categories.length > 0) {
-      const cachedProducts = loadProductsFromCache();
-      if (cachedProducts && cachedProducts.length > 0) {
-        setAllProducts(cachedProducts);
+    const init = async () => {
+      const cached = loadProductsFromCache();
+      if (cached) {
+        setAllProducts(cached);
         setIsUsingCache(true);
         setIsLoading(false);
-        console.log('Initialized products from cache on mount:', cachedProducts.length);
       }
-      hasInitialized.current = true;
+      
+      // Always fetch fresh "All" data in the background to sync
+      fetchProducts(t.all, "", false);
+    };
+    
+    if (categories.length > 0) {
+      init();
     }
-  }, [categories.length]);
+  }, [categories.length, t.all]);
 
   // Fetch products based on selected category with cache support
   const fetchProducts = useCallback(async (category: string, search: string, forceRefresh: boolean = false) => {
@@ -235,14 +240,17 @@ export default function ProductPage() {
   }, [t.all]);
 
   const filteredData = useMemo(() => {
+    const isAll = selectedCategory === t.all || selectedCategory === "All" || selectedCategory === "ទាំងអស់";
+    
     return allProducts.filter((item) => {
-      // Category Filter
-      const isAll = selectedCategory === t.all || selectedCategory === "All" || selectedCategory === "ទាំងអស់";
-      const matchesCategory = isAll || item.product.category_name === selectedCategory; // Adjust property name to match your API
+      // 1. Category Matching (Safely handle missing category_name)
+      const itemCategory = item.product?.category_name?.toLowerCase() || "";
+      const selected = selectedCategory.toLowerCase();
+      const matchesCategory = isAll || itemCategory === selected;
   
-      // Search Filter
-      const matchesSearch = item.product.name
-        .toLowerCase()
+      // 2. Search Matching
+      const matchesSearch = item.product?.name
+        ?.toLowerCase()
         .includes(searchQuery.toLowerCase());
   
       return matchesCategory && matchesSearch;
