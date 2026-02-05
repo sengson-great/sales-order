@@ -104,12 +104,9 @@ export default function ShippingAddressPage() {
       setNewAddress(prev => ({
         ...prev,
         coordinates: coordinates,
-        label: prev.label || (isSalesOnField ? "Customer Location" : "Current Location"),
+        label: prev.label,
         // Keep the user's typed details, don't override with coordinates
-        details: prev.details || (isSalesOnField 
-          ? "Customer location"
-          : "Current Location"
-        )
+        details: prev.details
       }));
 
       toast.success("Current location captured successfully!");
