@@ -320,11 +320,11 @@ const page = () => {
                 <div>
                   <h2 className="text-blue-600 font-black text-xl">ល.រ #{orderId}</h2>
                   <p className="text-xs text-gray-500">{formatDate(orderDetails.created_at)}</p>
-                  {user?.role === 'sale' && orderDetails.salesperson_info && (
+                  {/* {user?.role === 'sale' && orderDetails.salesperson_info && (
                     <p className="text-xs text-gray-600 mt-1">
                       អ្នកលក់: {orderDetails.salesperson_info.name}
                     </p>
-                  )}
+                  )} */}
                 </div>
                 <span className="bg-blue-600 text-white text-[10px] px-2 py-1 rounded-full font-bold">បង្កាន់ដៃ</span>
               </div>

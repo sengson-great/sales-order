@@ -384,9 +384,19 @@ export default function ShippingAddressPage() {
             </svg>
           </button>
         )}
-        <div className="text-sm text-gray-500 mt-2">
-          Showing {paginatedAddresses.length} of {totalItems} addresses
-          {searchQuery.trim() && ` (filtered from ${savedAddresses.length} total)`}
+        <div className="mt-2 flex justify-between items-center">
+           <div className="text-sm text-gray-500">
+            Showing {paginatedAddresses.length} of {totalItems} { user?.role === "sale" ? "customers" : "addresses"}
+            {searchQuery.trim() && ` (filtered from ${savedAddresses.length} total)`}
+          </div>
+          {/* Add New Button */}
+          <button
+            onClick={handleAddNew}
+            className="mt-4 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 font-semibold flex items-center justify-center gap-2"
+          >
+            <span className="text-xl">+</span>
+            {user?.role === "sale" ? "Add New Customer" : t.addNewAddress}
+          </button>
         </div>
       </div>
 
@@ -520,15 +530,6 @@ export default function ShippingAddressPage() {
           </div>
         </div>
       )}
-
-      {/* Add New Button */}
-      <button
-        onClick={handleAddNew}
-        className="mt-4 px-4 py-3 bg-blue-600 text-white rounded-xl hover:bg-blue-700 w-full font-semibold flex items-center justify-center gap-2"
-      >
-        <span className="text-xl">+</span>
-        {user?.role === "sale" ? "Add New Customer" : t.addNewAddress}
-      </button>
 
       {/* Form Modal */}
       {showFormModal && (
