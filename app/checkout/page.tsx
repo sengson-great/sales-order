@@ -27,18 +27,16 @@ type ExtendedAddress = ContextAddress & {
   api_user_id?: number;
 };
 
-const containerStyle = { width: "100%", height: "400px" };
-
-// Pagination configuration
-const ITEMS_PER_PAGE = 5;
-
-// Add this interface for payment method
+// Payment Method Interface
 type PaymentMethodType = {
   id: string;
   name: string;
   image: string;
   type: 'default' | 'custom';
 };
+
+const containerStyle = { width: "100%", height: "400px" };
+const ITEMS_PER_PAGE = 5;
 
 const CombinedCheckoutPage = () => {
   const { user, setUser } = useAuth();
@@ -84,15 +82,16 @@ const CombinedCheckoutPage = () => {
   // State to control when to show search results
   const [showSearchResults, setShowSearchResults] = useState(false);
 
-  const IMAGE_URL = process.env.NEXT_PUBLIC_IMAGE_URL!;
-
-  const currentSelectedAddress = selectedAddress === "current" ? currentAddress : selectedAddress;
-
+  // Payment methods state - FIXED: Initialize with proper structure
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodType[]>([
-    { name: t.QR, image: "/qr.jpg", id: 'qr', type: 'default' },
-    { name: t.cash, image: "/cash.jpg", id: 'cash', type: 'default' },
+    { id: 'qr', name: t.QR || 'QR', image: "/qr.jpg", type: 'default' },
+    { id: 'cash', name: t.cash || 'Cash', image: "/cash.jpg", type: 'default' },
   ]);
 
+  const IMAGE_URL = process.env.NEXT_PUBLIC_IMAGE_URL!;
+  const currentSelectedAddress = selectedAddress === "current" ? currentAddress : selectedAddress;
+
+  // ==================== FIXED: Custom Payment Methods Fetch ====================
   useEffect(() => {
     const fetchCustomPaymentMethods = async () => {
       try {
@@ -101,32 +100,44 @@ const CombinedCheckoutPage = () => {
         const response = await api.get('/business/1/custom-payments');
         
         if (response.data.success && response.data.custom_payments) {
-          // Combine default and custom payment methods
-          const customMethods = response.data.payment_methods
-            .filter((method: any) => method.type === 'custom' && method.name)
-            .map((method: any) => ({
-              id: method.id,
-              name: method.name,
-              image: method.image || '/payment-default.jpg',
-              type: 'custom' as const
-            }));
+          const customPayments = response.data.custom_payments;
+          const customMethods: PaymentMethodType[] = [];
           
-          // Update payment methods state
+          // Process custom_pay_1 through custom_pay_7
+          for (let i = 1; i <= 7; i++) {
+            const key = `custom_pay_${i}` as keyof typeof customPayments;
+            const paymentName = customPayments[key];
+            
+            // Only add if payment name exists and is not null
+            if (paymentName && paymentName !== null) {
+              customMethods.push({
+                id: key as string,
+                name: paymentName,
+                image: `/${key as string}.jpg` || '/payment-default.jpg',
+                type: 'custom' as const
+              });
+            }
+          }
+          
+          // Update payment methods state - FIXED: Add custom methods to existing defaults
           setPaymentMethods(prev => [
-            ...prev.filter(m => m.type === 'default'), // Keep default methods
+            ...prev, // Keep default methods (QR, Cash)
             ...customMethods // Add custom methods
           ]);
         }
       } catch (error) {
         console.error('Failed to fetch payment methods:', error);
-        toast.error('Failed to load payment methods');
+        toast.error('Failed to load custom payment methods');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchCustomPaymentMethods();
-  }, []);
+    // Only fetch if user exists
+    if (user) {
+      fetchCustomPaymentMethods();
+    }
+  }, [user, setLoading]); // FIXED: Added dependencies
 
   // Check if user is actively searching or has search results
   const isSearching = useMemo(() => {
@@ -153,7 +164,6 @@ const CombinedCheckoutPage = () => {
   const isLikelyPhoneNumber = useMemo(() => {
     if (!searchQuery.trim()) return false;
     const firstChar = searchQuery.trim().charAt(0);
-    // Check if first character is a digit (0-9)
     return /^\d/.test(firstChar);
   }, [searchQuery]);
 
@@ -202,20 +212,16 @@ const CombinedCheckoutPage = () => {
   // Update form fields in real-time as user types in search
   useEffect(() => {
     if (searchQuery.trim() && user?.role === "sale") {
-      // If it starts with a number → phone number field
       if (isLikelyPhoneNumber) {
         setTempAddress(prev => ({
           ...prev,
           phone: searchQuery.trim(),
-          // Don't clear label if user already typed something there
           label: prev.label || ""
         }));
       } else {
-        // If it starts with letter or other character → name field
         setTempAddress(prev => ({
           ...prev,
           label: searchQuery.trim(),
-          // Don't clear phone if user already typed something there
           phone: prev.phone || ""
         }));
       }
@@ -265,7 +271,6 @@ const CombinedCheckoutPage = () => {
   const handleSelectSavedAddress = (addr: ExtendedAddress) => {
     setSelectedAddress(addr);
     setIsAdding(false);
-    // Keep search query to show selected customer
     setShowSearchResults(true);
   };
 
@@ -292,19 +297,17 @@ const CombinedCheckoutPage = () => {
     const value = e.target.value;
     setSearchQuery(value);
 
-    // Show search results when user starts typing
     if (value.trim()) {
       setShowSearchResults(true);
-      setIsAdding(true); // Always show form when searching
+      setIsAdding(true);
     } else {
       setShowSearchResults(false);
       setIsAdding(false);
     }
   };
 
-  // Save new address - label is customer name for sales, address label for regular users
+  // Save new address
   const handleSaveNewAddress = async () => {
-    // Validate label (customer name for sales, address label for regular users)
     if (!tempAddress.label?.trim()) {
       toast.error(
         user?.role === "sale"
@@ -314,7 +317,6 @@ const CombinedCheckoutPage = () => {
       return;
     }
 
-    // Validate phone
     if (user?.role === "sale") {
       if (!tempAddress.phone?.trim()) {
         toast.error("Please enter customer phone number");
@@ -327,7 +329,6 @@ const CombinedCheckoutPage = () => {
       }
     }
 
-    // Validate address details
     if (!tempAddress.details?.trim()) {
       toast.error("Please enter address details");
       return;
@@ -338,7 +339,6 @@ const CombinedCheckoutPage = () => {
       return;
     }
 
-    // Determine phone number to use
     const finalPhone = user?.role === "sale"
       ? (tempAddress.phone || "").trim()
       : userPhone?.trim();
@@ -360,7 +360,6 @@ const CombinedCheckoutPage = () => {
     setLoading(true);
 
     try {
-      // Prepare address data
       const addressData: APIAddress = {
         label: (tempAddress.label || "").trim(),
         phone: finalPhone,
@@ -387,11 +386,11 @@ const CombinedCheckoutPage = () => {
       setSavedAddresses((prev) => [...prev, newAddress]);
       setSelectedAddress(newAddress);
       setIsAdding(false);
-      setSearchQuery(newAddress.label || ""); // Set search query to the new customer name
+      setSearchQuery(newAddress.label || "");
       setShowSearchResults(true);
       setCurrentPage(1);
 
-      // Reset form fields after successful save
+      // Reset form fields
       setTempAddress({
         label: "",
         phone: user?.role === "sale" ? "" : userPhone || "",
@@ -409,16 +408,16 @@ const CombinedCheckoutPage = () => {
     }
   };
 
+  // FIXED: Handle payment method selection
   const handlePaymentMethodSelect = (methodName: string) => {
     const selectedMethod = paymentMethods.find(m => m.name === methodName);
     
     if (selectedMethod) {
       setPaymentMethod(methodName);
       
-      if (methodName === "QR") {
+      if (methodName === (t.QR || 'QR')) {
         setShowQRPopup(true);
       } else if (selectedMethod.type === 'custom') {
-        // Handle custom payment method selection
         toast.info(`Selected custom payment: ${methodName}`);
       }
     }
@@ -971,43 +970,95 @@ const CombinedCheckoutPage = () => {
             ) : null}
           </section>
 
-          {/* Payment Method */}
+          {/* ==================== FIXED: Payment Method Section ==================== */}
           <section className="flex flex-col gap-3">
             <h2 className="text-2xl font-semibold text-gray-800">{t.paymentMethod}</h2>
+            
+            {/* QR Payment Method */}
+            <div
+              onClick={() => handlePaymentMethodSelect(t.QR || 'QR')}
+              className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
+                paymentMethod === t.QR ? "border-blue-500 bg-blue-50 shadow-lg" : "border-gray-200 hover:shadow-md"
+              }`}
+            >
+              <div className="flex items-center gap-4">
+                <img
+                  src="/qr.jpg"
+                  alt="QR"
+                  className="w-12 h-12 object-contain"
+                  onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
+                />
+                <div>
+                  <p className="font-semibold text-gray-700">{t.QR || 'QR'}</p>
+                  <p className="text-xs text-gray-500">Scan QR code to pay</p>
+                </div>
+              </div>
+              {paymentMethod === t.QR && (
+                <p className="text-sm text-gray-500 mt-2">
+                  You will scan a QR code for payment
+                </p>
+              )}
+            </div>
 
-                {/* Custom Payment Methods */}
-                {paymentMethods
-                  .filter(method => method.type === 'custom')
-                  .map((method) => (
-                    <div
-                      key={method.id}
-                      onClick={() => handlePaymentMethodSelect(method.name)}
-                      className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
-                        paymentMethod === method.name
-                          ? "border-green-500 bg-green-50 shadow-lg"
-                          : "border-gray-200 hover:shadow-md"
-                      }`}
-                    >
-                      <div className="flex items-center gap-4">
-                        <img
-                          src={method.image}
-                          alt={method.name}
-                          className="w-12 h-12 object-contain"
-                          onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
-                        />
-                        <div>
-                          <p className="font-semibold text-gray-700">{method.name}</p>
-                          <p className="text-xs text-gray-500">Custom Payment Method</p>
-                        </div>
-                      </div>
-                      {paymentMethod === method.name && (
-                        <p className="text-sm text-gray-500 mt-2">
-                          Pay with {method.name}
-                        </p>
-                      )}
+            {/* Cash Payment Method */}
+            <div
+              onClick={() => handlePaymentMethodSelect(t.cash || 'Cash')}
+              className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
+                paymentMethod === t.cash ? "border-blue-500 bg-blue-50 shadow-lg" : "border-gray-200 hover:shadow-md"
+              }`}
+            >
+              <div className="flex items-center gap-4">
+                <img
+                  src="/cash.jpg"
+                  alt="Cash"
+                  className="w-12 h-12 object-contain"
+                  onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
+                />
+                <div>
+                  <p className="font-semibold text-gray-700">{t.cash || 'Cash'}</p>
+                  <p className="text-xs text-gray-500">Pay with cash on delivery</p>
+                </div>
+              </div>
+              {paymentMethod === t.cash && (
+                <p className="text-sm text-gray-500 mt-2">
+                  You will pay with cash upon delivery
+                </p>
+              )}
+            </div>
+
+            {/* Custom Payment Methods */}
+            {paymentMethods
+              .filter(method => method.type === 'custom')
+              .map((method) => (
+                <div
+                  key={method.id}
+                  onClick={() => handlePaymentMethodSelect(method.name)}
+                  className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
+                    paymentMethod === method.name
+                      ? "border-green-500 bg-green-50 shadow-lg"
+                      : "border-gray-200 hover:shadow-md"
+                  }`}
+                >
+                  <div className="flex items-center gap-4">
+                    <img
+                      src={method.image}
+                      alt={method.name}
+                      className="w-12 h-12 object-contain"
+                      onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
+                    />
+                    <div>
+                      <p className="font-semibold text-gray-700">{method.name}</p>
+                      <p className="text-xs text-gray-500">Custom Payment Method</p>
                     </div>
-                  ))
-                }
+                  </div>
+                  {paymentMethod === method.name && (
+                    <p className="text-sm text-gray-500 mt-2">
+                      Pay with {method.name}
+                    </p>
+                  )}
+                </div>
+              ))
+            }
           </section>
         </>
       )}
