@@ -79,7 +79,7 @@ export default function ShippingAddressPage() {
     fetchAddress();
   }, [setLoading]);
 
-  // Current location detection function - simplified for salesOnField
+  // Current location detection function - store coordinates but don't show to user
   const handleDetectCurrentLocation = async () => {
     if (!navigator.geolocation) {
       toast.error("Geolocation is not supported by your browser");
@@ -100,18 +100,19 @@ export default function ShippingAddressPage() {
       const { latitude, longitude } = position.coords;
       const coordinates = { lat: latitude, lng: longitude };
       
-      // Update the form with current location
+      // Store coordinates but don't show them to the user
       setNewAddress(prev => ({
         ...prev,
         coordinates: coordinates,
         label: prev.label || (isSalesOnField ? "Customer Location" : "Current Location"),
+        // Keep the user's typed details, don't override with coordinates
         details: prev.details || (isSalesOnField 
-          ? `Customer location at ${latitude.toFixed(6)}, ${longitude.toFixed(6)}`
-          : `Current Location (${latitude.toFixed(6)}, ${longitude.toFixed(6)})`
+          ? "Customer location"
+          : "Current Location"
         )
       }));
 
-      toast.success("Current location detected successfully!");
+      toast.success("Current location captured successfully!");
       
       // For salesOnField, we don't show the map modal
       if (!isSalesOnField && showMapModal) {
@@ -586,7 +587,8 @@ export default function ShippingAddressPage() {
                     <p className="text-gray-600 text-sm mt-1">
                       {t.phone}: {addr.phone}
                     </p>
-                    {addr.coordinates && (
+                    {/* Don't show coordinates for salesOnField */}
+                    {!isSalesOnField && addr.coordinates && (
                       <p className="text-gray-500 text-xs mt-1">
                         📍 Lat: {addr.coordinates.lat.toFixed(5)}, Lng: {addr.coordinates.lng.toFixed(5)}
                       </p>
@@ -769,7 +771,7 @@ export default function ShippingAddressPage() {
                     className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     value={newAddress.details}
                     onChange={(e) => setNewAddress({ ...newAddress, details: e.target.value })}
-                    rows={3}
+                    rows={4}
                   />
                 </div>
               </div>
@@ -779,7 +781,7 @@ export default function ShippingAddressPage() {
                 <div className="space-y-4">
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Customer Location *
+                      Capture GPS Location *
                     </label>
                     
                     {/* Current Location Detection Button - One Click */}
@@ -801,17 +803,15 @@ export default function ShippingAddressPage() {
                             <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                             <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                           </svg>
-                          <span className="text-lg font-medium">Detecting location...</span>
+                          <span className="text-lg font-medium">Capturing GPS...</span>
                         </>
                       ) : newAddress.coordinates ? (
                         <>
                           <div className="text-3xl">📍</div>
                           <div className="text-center">
-                            <span className="text-lg font-medium">Location Detected ✓</span>
-                            <p className="text-sm mt-1">
-                              Lat: {newAddress.coordinates.lat.toFixed(6)}
-                              <br />
-                              Lng: {newAddress.coordinates.lng.toFixed(6)}
+                            <span className="text-lg font-medium">GPS Location Captured ✓</span>
+                            <p className="text-sm mt-1 text-gray-600">
+                              GPS coordinates saved successfully
                             </p>
                           </div>
                         </>
@@ -819,8 +819,8 @@ export default function ShippingAddressPage() {
                         <>
                           <div className="text-3xl">📍</div>
                           <div className="text-center">
-                            <span className="text-lg font-medium">Click to Detect Location</span>
-                            <p className="text-sm mt-1">One click to get current GPS location</p>
+                            <span className="text-lg font-medium">Click to Capture GPS</span>
+                            <p className="text-sm mt-1">One click to capture current GPS location</p>
                           </div>
                         </>
                       )}
@@ -828,7 +828,7 @@ export default function ShippingAddressPage() {
                     
                     {!newAddress.coordinates && !isDetectingLocation && (
                       <p className="text-sm text-red-500 mt-2">
-                        Please click the button above to detect your current location
+                        Please click the button above to capture GPS location
                       </p>
                     )}
                   </div>
