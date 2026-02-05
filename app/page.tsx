@@ -4,7 +4,7 @@ import SearchBar from "@/components/SearchBar";
 import Categories from "@/components/Categories";
 import Products from "@/components/Products";
 import RewardSection from "./components/RewardSection";
-import { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import api from "@/api/api";
 import { useLanguage } from "@/context/LanguageContext";
 
@@ -32,6 +32,10 @@ const CATEGORIES_CACHE_KEY = 'cached_categories';
 const CACHE_TIMESTAMP_KEY = 'products_cache_timestamp';
 const CACHE_EXPIRY_MS = 60 * 60 * 1000; // 1 hour cache expiry
 
+// Add a request queue to prevent too many simultaneous requests
+let isFetchingCategories = false;
+let isFetchingProducts = false;
+
 export default function ProductPage() {
   const { t } = useLanguage();
   const [selectedCategory, setSelectedCategory] = useState<string>(t.all);
@@ -45,7 +49,6 @@ export default function ProductPage() {
   
   // Refs to track state
   const hasInitialized = useRef(false);
-  const isFetching = useRef(false);
   
   // Cache for category-specific products
   const [categoryCache, setCategoryCache] = useState<Record<string, ProductData[]>>({});
@@ -77,6 +80,10 @@ export default function ProductPage() {
             console.log('Loading products from cache:', parsed.length);
             return parsed;
           }
+        } else {
+          // Cache expired, clear it
+          localStorage.removeItem(PRODUCTS_CACHE_KEY);
+          localStorage.removeItem(CACHE_TIMESTAMP_KEY);
         }
       }
     } catch (error) {
@@ -126,57 +133,62 @@ export default function ProductPage() {
     }
   };
 
-  // Fetch categories on mount with cache support
+  // Fetch categories with debouncing and rate limiting
   useEffect(() => {
-    async function fetchCategories() {
+    const fetchCategories = async () => {
+      if (isFetchingCategories) return;
+      
+      isFetchingCategories = true;
+      
       try {
         // Try to load from cache first
         const cachedCategories = loadCategoriesFromCache();
         if (cachedCategories && cachedCategories.length > 0) {
           setCategories(cachedCategories);
           console.log('Loaded categories from cache:', cachedCategories.length);
+          isFetchingCategories = false;
+          return; // Skip API call if we have valid cache
         }
 
-        // Always fetch fresh data
+        // Only fetch from API if no cache
+        console.log('Fetching categories from API...');
         const res = await api.get("/category/all");
         const categoriesData = Array.isArray(res.data)
           ? res.data
           : (res.data?.data || res.data || []);
         
-        // Only update if we got valid data
         if (Array.isArray(categoriesData) && categoriesData.length > 0) {
           setCategories(categoriesData);
           saveCategoriesToCache(categoriesData);
           console.log('Fetched fresh categories:', categoriesData.length);
-        } else if (!categories.length && cachedCategories) {
-          // If API returns empty but we have cache, keep cache
-          console.log('API returned empty categories, keeping cached data');
         }
       } catch (err) {
         console.error("Failed to fetch categories:", err);
-        // If fetch fails and no categories set yet, try to use cache
-        if (!categories.length) {
-          const cachedCategories = loadCategoriesFromCache();
-          if (cachedCategories) {
-            setCategories(cachedCategories);
-          }
+        // If fetch fails, try to use cache as fallback
+        const cachedCategories = loadCategoriesFromCache();
+        if (cachedCategories) {
+          setCategories(cachedCategories);
         }
+      } finally {
+        isFetchingCategories = false;
       }
-    }
+    };
     
     if (!hasInitialized.current) {
       fetchCategories();
-      hasInitialized.current = true;
     }
   }, []);
 
-  // Fetch products based on selected category with cache support
+  // Fetch products with debouncing and rate limiting
   const fetchProducts = useCallback(async (category: string, search: string, forceRefresh: boolean = false) => {
-    if (isFetching.current) return;
+    if (isFetchingProducts) {
+      console.log('Already fetching products, skipping...');
+      return;
+    }
     
+    isFetchingProducts = true;
     setIsLoading(true);
     setError(null);
-    isFetching.current = true;
     
     try {
       const isAll = category === t.all || category === "All" || category === "ទាំងអស់";
@@ -185,18 +197,22 @@ export default function ProductPage() {
       if (!forceRefresh && isAll && !search.trim()) {
         const cachedProducts = loadProductsFromCache();
         if (cachedProducts && cachedProducts.length > 0) {
+          console.log('Using cached products for "All" category');
           setAllProducts(cachedProducts);
           setFilteredProducts(cachedProducts);
           setIsUsingCache(true);
           setIsLoading(false);
+          isFetchingProducts = false;
+          return; // Skip API call if we have valid cache
         }
       }
       
       // Check in-memory category cache
       if (!forceRefresh && categoryCache[category] && !search.trim() && !isAll) {
+        console.log(`Using in-memory cache for category: "${category}"`);
         setFilteredProducts(categoryCache[category]);
         setIsLoading(false);
-        isFetching.current = false;
+        isFetchingProducts = false;
         return;
       }
       
@@ -218,6 +234,9 @@ export default function ProductPage() {
       }
       
       console.log(`Fetching products from API: ${url}`);
+      
+      // Add delay to prevent rate limiting (500ms)
+      await new Promise(resolve => setTimeout(resolve, 500));
       
       const res = await api.get(url);
       let productsData: ProductData[] = [];
@@ -259,7 +278,18 @@ export default function ProductPage() {
       
     } catch (err: any) {
       console.error("Error fetching products:", err);
-      setError(`Failed to load products: ${err.message}`);
+      
+      // Handle 429 rate limit error specifically
+      if (err.response?.status === 429) {
+        setError("Too many requests. Please wait a moment and try again.");
+        
+        // Wait 5 seconds before retrying
+        setTimeout(() => {
+          fetchProducts(category, search, false);
+        }, 5000);
+      } else {
+        setError(`Failed to load products: ${err.message}`);
+      }
       
       // Try to use cache as fallback
       if (category === t.all || category === "All" || category === "ទាំងអស់") {
@@ -278,43 +308,50 @@ export default function ProductPage() {
       }
     } finally {
       setIsLoading(false);
-      isFetching.current = false;
+      isFetchingProducts = false;
     }
   }, [categoryCache, t.all]);
 
-  // Load initial products from cache on mount
+  // Load initial products from cache on mount - ONLY ONCE
   useEffect(() => {
     if (categories.length > 0 && !hasInitialized.current) {
+      console.log('Initializing products from cache...');
       const cachedProducts = loadProductsFromCache();
       if (cachedProducts && cachedProducts.length > 0) {
         setAllProducts(cachedProducts);
         setFilteredProducts(cachedProducts);
         setIsUsingCache(true);
         setIsLoading(false);
-        console.log('Initialized products from cache on mount:', cachedProducts.length);
+        console.log('Initialized products from cache:', cachedProducts.length);
+        hasInitialized.current = true;
       } else {
-        // Fetch all products if no cache
+        // Only fetch if no cache exists
+        console.log('No cache found, fetching products...');
         fetchProducts(t.all, "", false);
       }
-      hasInitialized.current = true;
     }
   }, [categories.length, t.all, fetchProducts]);
 
-  // Fetch products when category or search changes
+  // Debounced fetch when category or search changes
   useEffect(() => {
-    if (categories.length > 0 && selectedCategory) {
+    if (categories.length > 0 && selectedCategory && hasInitialized.current) {
       const isSearching = searchQuery.trim().length > 0;
       const isAllCategory = selectedCategory === t.all || selectedCategory === "All" || selectedCategory === "ទាំងអស់";
       
       // Don't fetch if we already have data and not searching
       if (!isSearching && !isAllCategory && categoryCache[selectedCategory]) {
-        console.log(`Already have cached data for "${selectedCategory}", skipping fetch`);
+        console.log(`Using cached data for "${selectedCategory}"`);
         setFilteredProducts(categoryCache[selectedCategory]);
         return;
       }
       
-      console.log(`Fetching for category: "${selectedCategory}", search: "${searchQuery}"`);
-      fetchProducts(selectedCategory, searchQuery, false);
+      // Debounce the fetch to prevent rapid API calls
+      const timer = setTimeout(() => {
+        console.log(`Fetching for category: "${selectedCategory}", search: "${searchQuery}"`);
+        fetchProducts(selectedCategory, searchQuery, false);
+      }, 300); // 300ms debounce
+      
+      return () => clearTimeout(timer);
     }
   }, [selectedCategory, searchQuery, categories.length, fetchProducts, categoryCache, t.all]);
 
@@ -391,8 +428,9 @@ export default function ProductPage() {
                 <button
                   onClick={() => fetchProducts(selectedCategory, searchQuery, true)}
                   className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition-colors"
+                  disabled={isLoading}
                 >
-                  Retry
+                  {isLoading ? "Retrying..." : "Retry"}
                 </button>
                 <button
                   onClick={clearCache}
@@ -423,8 +461,9 @@ export default function ProductPage() {
                   onClick={handleRefresh}
                   className="text-sm text-blue-500 hover:text-blue-700"
                   title="Refresh data"
+                  disabled={isLoading}
                 >
-                  Refresh
+                  {isLoading ? "Refreshing..." : "Refresh"}
                 </button>
                 <button
                   onClick={clearCache}
