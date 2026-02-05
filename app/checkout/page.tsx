@@ -85,6 +85,11 @@ const CombinedCheckoutPage = () => {
 
   const currentSelectedAddress = selectedAddress === "current" ? currentAddress : selectedAddress;
 
+  // Check if user is actively searching or has search results
+  const isSearching = useMemo(() => {
+    return searchQuery.trim().length > 0 || showSearchResults;
+  }, [searchQuery, showSearchResults]);
+
   // Filter saved addresses based on search query
   const filteredAddresses = useMemo(() => {
     if (!searchQuery.trim()) {
@@ -646,7 +651,7 @@ const CombinedCheckoutPage = () => {
                     className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                     rows={3}
                   />
-                  {salesUser?.role === 'salesOnline' &&<input
+                  {salesUser?.role === 'salesOnline' && <input
                     type="button"
                     readOnly
                     value={t.clickToSelectLocation}
@@ -654,7 +659,7 @@ const CombinedCheckoutPage = () => {
                     className="p-2 border rounded-lg text-white cursor-pointer bg-blue-500 hover:bg-blue-600"
                     placeholder={t.clickToSelectLocation}
                   />}
-                  {salesUser?.role === 'salesOnField' &&<input
+                  {salesUser?.role === 'salesOnField' && <input
                     type="button"
                     readOnly
                     value={t.currentLocation}
@@ -709,208 +714,243 @@ const CombinedCheckoutPage = () => {
         </div>
       )}
 
-      {/* Order Summary */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2xl font-semibold text-gray-800">{t.orderSummary}</h2>
-        {cart.length === 0 && <p>{t.yourCartIsEmpty}</p>}
+      {/* Hide other sections when searching */}
+      {!isSearching && (
+        <>
+          {/* Order Summary */}
+          <section className="flex flex-col gap-3">
+            <h2 className="text-2xl font-semibold text-gray-800">{t.orderSummary}</h2>
+            {cart.length === 0 && <p>{t.yourCartIsEmpty}</p>}
 
-        {cart.map((item) => (
-          <div
-            key={item.id}
-            className="flex items-center justify-between border-b border-gray-300 p-3 gap-3"
-          >
-            <img
-              src={item.image && item.image.trim() ? IMAGE_URL + item.image : "https://syspro.asia/img/default.png"}
-              alt={item.title}
-              className="w-16 h-16 object-cover rounded"
-            />
-            <div className="flex-1">
-              <p className="font-medium">{item.title}</p>
-              <p className="text-gray-600">
-                ${item.price.toFixed(2)} × {item.qty} = ${(item.price * item.qty).toFixed(2)}
-              </p>
-            </div>
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => updateItemQty(item.id, Math.max(1, item.qty - 1))}
-                className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-              >
-                -
-              </button>
-              <span className="w-6 text-center">{item.qty}</span>
-              <button
-                onClick={() => updateItemQty(item.id, item.qty + 1)}
-                className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
-              >
-                +
-              </button>
-            </div>
-          </div>
-        ))}
-      </section>
-
-      {/* Shipping Address Section */}
-      <section className="flex flex-col gap-3">
-        {user?.role !== "sale" && <h2 className="text-2xl font-semibold text-gray-800">{t.shippingAddress}</h2>}
-
-        {/* Current Location */}
-        {user?.role !== "sale" && (
-          <div
-            onClick={handleDetectCurrentLocation}
-            className={`p-4 rounded-xl border cursor-pointer flex items-center justify-between transition ${selectedAddress === "current" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
-              } ${isDetectingLocation ? "opacity-70" : ""}`}
-          >
-            <div className="flex items-center gap-3">
-              <span className="text-blue-500 text-xl">📍</span>
-              <div>
-                <p className="font-semibold">{t.currentLocation || "Current Location"}</p>
-                <p className="text-sm text-gray-500">
-                  {isDetectingLocation
-                    ? t.detectingYourCurrentLocation
-                    : currentAddress
-                      ? t.clickToUseYourCurrentLocation
-                      : t.clickToDetectYourCurrentLocation}
-                </p>
-              </div>
-            </div>
-            {isDetectingLocation && (
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
-            )}
-          </div>
-        )}
-
-        {/* Regular Users: Saved Addresses List */}
-        {user?.role !== "sale" && !isAdding && savedAddresses.length > 0 && (
-          <div className="flex flex-col gap-3">
-            {savedAddresses.map((addr) => (
+            {cart.map((item) => (
               <div
-                key={addr.id}
-                onClick={() => setSelectedAddress(addr)}
-                className={`p-4 rounded-xl border cursor-pointer flex items-center justify-between transition ${selectedAddress && typeof selectedAddress !== 'string' && (selectedAddress as ExtendedAddress).id === addr.id
-                    ? "border-blue-500 bg-blue-50"
-                    : "border-gray-200 hover:bg-gray-50"
-                  }`}
+                key={item.id}
+                className="flex items-center justify-between border-b border-gray-300 p-3 gap-3"
+              >
+                <img
+                  src={item.image && item.image.trim() ? IMAGE_URL + item.image : "https://syspro.asia/img/default.png"}
+                  alt={item.title}
+                  className="w-16 h-16 object-cover rounded"
+                />
+                <div className="flex-1">
+                  <p className="font-medium">{item.title}</p>
+                  <p className="text-gray-600">
+                    ${item.price.toFixed(2)} × {item.qty} = ${(item.price * item.qty).toFixed(2)}
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => updateItemQty(item.id, Math.max(1, item.qty - 1))}
+                    className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                  >
+                    -
+                  </button>
+                  <span className="w-6 text-center">{item.qty}</span>
+                  <button
+                    onClick={() => updateItemQty(item.id, item.qty + 1)}
+                    className="px-2 py-1 bg-gray-200 rounded hover:bg-gray-300"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            ))}
+          </section>
+
+          {/* Shipping Address Section */}
+          <section className="flex flex-col gap-3">
+            {user?.role !== "sale" && <h2 className="text-2xl font-semibold text-gray-800">{t.shippingAddress}</h2>}
+
+            {/* Current Location */}
+            {user?.role !== "sale" && (
+              <div
+                onClick={handleDetectCurrentLocation}
+                className={`p-4 rounded-xl border cursor-pointer flex items-center justify-between transition ${selectedAddress === "current" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
+                  } ${isDetectingLocation ? "opacity-70" : ""}`}
               >
                 <div className="flex items-center gap-3">
-                  <span className="text-gray-400 text-xl">🏠</span>
+                  <span className="text-blue-500 text-xl">📍</span>
                   <div>
-                    <p className="font-semibold">{addr.label}</p>
-                    <p className="text-sm text-gray-600">{addr.details}</p>
-                    <p className="text-xs text-gray-500 mt-1">{addr.phone}</p>
+                    <p className="font-semibold">{t.currentLocation || "Current Location"}</p>
+                    <p className="text-sm text-gray-500">
+                      {isDetectingLocation
+                        ? t.detectingYourCurrentLocation
+                        : currentAddress
+                          ? t.clickToUseYourCurrentLocation
+                          : t.clickToDetectYourCurrentLocation}
+                    </p>
                   </div>
                 </div>
-                {selectedAddress && typeof selectedAddress !== 'string' && (selectedAddress as ExtendedAddress).id === addr.id && (
-                  <span className="text-blue-500 font-bold">✓</span>
+                {isDetectingLocation && (
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
+                )}
+              </div>
+            )}
+
+            {/* Regular Users: Saved Addresses List */}
+            {user?.role !== "sale" && !isAdding && savedAddresses.length > 0 && (
+              <div className="flex flex-col gap-3">
+                {savedAddresses.map((addr) => (
+                  <div
+                    key={addr.id}
+                    onClick={() => setSelectedAddress(addr)}
+                    className={`p-4 rounded-xl border cursor-pointer flex items-center justify-between transition ${selectedAddress && typeof selectedAddress !== 'string' && (selectedAddress as ExtendedAddress).id === addr.id
+                      ? "border-blue-500 bg-blue-50"
+                      : "border-gray-200 hover:bg-gray-50"
+                      }`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <span className="text-gray-400 text-xl">🏠</span>
+                      <div>
+                        <p className="font-semibold">{addr.label}</p>
+                        <p className="text-sm text-gray-600">{addr.details}</p>
+                        <p className="text-xs text-gray-500 mt-1">{addr.phone}</p>
+                      </div>
+                    </div>
+                    {selectedAddress && typeof selectedAddress !== 'string' && (selectedAddress as ExtendedAddress).id === addr.id && (
+                      <span className="text-blue-500 font-bold">✓</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Regular Users: Add New Address Button / Form */}
+            {user?.role !== "sale" && isAdding ? (
+              <div className="bg-white flex flex-col gap-4 p-4 border border-gray-200 rounded-xl">
+                {/* Name / Label */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Label *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Home, Work, etc."
+                    value={tempAddress.label || ""}
+                    onChange={(e) => setTempAddress({ ...tempAddress, label: e.target.value })}
+                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  />
+                </div>
+
+                {/* Phone */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t.phone} *
+                  </label>
+                  <div className="w-full p-3 border rounded-lg bg-gray-50 text-gray-700">
+                    {userPhone ? `${userPhone} (from account)` : "No phone in profile"}
+                  </div>
+                </div>
+
+                {/* Address Details */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t.details || "Address Details"} *
+                  </label>
+                  <textarea
+                    placeholder="Street, building, floor, notes..."
+                    value={tempAddress.details || ""}
+                    onChange={(e) => setTempAddress({ ...tempAddress, details: e.target.value })}
+                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                    rows={3}
+                  />
+                </div>
+
+                {/* Location Picker */}
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    {t.clickToSelectLocation} *
+                  </label>
+                  <input
+                    type="text"
+                    readOnly
+                    value={
+                      tempAddress.coordinates
+                        ? `Lat: ${tempAddress.coordinates.lat.toFixed(5)}, Lng: ${tempAddress.coordinates.lng.toFixed(5)}`
+                        : ""
+                    }
+                    onClick={() => setShowMap(true)}
+                    className="w-full p-3 border rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100"
+                    placeholder={t.clickToSelectLocation}
+                  />
+                  {!tempAddress.coordinates && (
+                    <p className="text-sm text-red-500 mt-1">{t.pleaseSelectALocationOnTheMap}</p>
+                  )}
+                </div>
+
+                {/* Action Buttons */}
+                <div className="flex gap-3 pt-2">
+                  <button
+                    onClick={handleSaveNewAddress}
+                    className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
+                    disabled={
+                      !tempAddress.details?.trim() ||
+                      !tempAddress.coordinates ||
+                      !tempAddress.label?.trim() ||
+                      !userPhone?.trim()
+                    }
+                  >
+                    {t.saveAddress}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setIsAdding(false);
+                      setTempAddress({
+                        label: "",
+                        phone: userPhone || "",
+                        details: "",
+                        coordinates: { lat: 0, lng: 0 },
+                        api_user_id: user?.id,
+                      });
+                    }}
+                    className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                  >
+                    {t.cancel}
+                  </button>
+                </div>
+              </div>
+            ) : user?.role !== "sale" ? (
+              <button
+                onClick={() => setIsAdding(true)}
+                className="mt-2 w-full py-3 bg-gray-100 border border-dashed border-gray-300 rounded-xl hover:bg-gray-50 font-medium flex items-center justify-center gap-2"
+              >
+                <span className="text-xl">+</span>
+                {t.addNewAddress}
+              </button>
+            ) : null}
+          </section>
+
+          {/* Payment Method */}
+          <section className="flex flex-col gap-3">
+            <h2 className="text-2xl font-semibold text-gray-800">{t.paymentMethod}</h2>
+            {paymentMethods.map((method) => (
+              <div
+                key={method.name}
+                onClick={() => handlePaymentMethodSelect(method.name)}
+                className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${paymentMethod === method.name
+                    ? "border-blue-500 bg-blue-50 shadow-lg"
+                    : "border-gray-200 hover:shadow-md"
+                  }`}
+              >
+                <div className="flex items-center gap-4">
+                  <img
+                    src={method.image}
+                    alt={method.name}
+                    className="w-12 h-12 object-contain"
+                    onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
+                  />
+                  <p className="font-semibold text-gray-700">{method.name}</p>
+                </div>
+                {paymentMethod === method.name && method.name !== "QR" && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    You will pay with cash upon delivery
+                  </p>
                 )}
               </div>
             ))}
-          </div>
-        )}
-
-        {/* Regular Users: Add New Address Button / Form */}
-        {user?.role !== "sale" && isAdding ? (
-          <div className="bg-white flex flex-col gap-4 p-4 border border-gray-200 rounded-xl">
-            {/* Name / Label */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Label *
-              </label>
-              <input
-                type="text"
-                placeholder="Home, Work, etc."
-                value={tempAddress.label || ""}
-                onChange={(e) => setTempAddress({ ...tempAddress, label: e.target.value })}
-                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-              />
-            </div>
-
-            {/* Phone */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t.phone} *
-              </label>
-              <div className="w-full p-3 border rounded-lg bg-gray-50 text-gray-700">
-                {userPhone ? `${userPhone} (from account)` : "No phone in profile"}
-              </div>
-            </div>
-
-            {/* Address Details */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t.details || "Address Details"} *
-              </label>
-              <textarea
-                placeholder="Street, building, floor, notes..."
-                value={tempAddress.details || ""}
-                onChange={(e) => setTempAddress({ ...tempAddress, details: e.target.value })}
-                className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                rows={3}
-              />
-            </div>
-
-            {/* Location Picker */}
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {t.clickToSelectLocation} *
-              </label>
-              <input
-                type="text"
-                readOnly
-                value={
-                  tempAddress.coordinates
-                    ? `Lat: ${tempAddress.coordinates.lat.toFixed(5)}, Lng: ${tempAddress.coordinates.lng.toFixed(5)}`
-                    : ""
-                }
-                onClick={() => setShowMap(true)}
-                className="w-full p-3 border rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100"
-                placeholder={t.clickToSelectLocation}
-              />
-              {!tempAddress.coordinates && (
-                <p className="text-sm text-red-500 mt-1">{t.pleaseSelectALocationOnTheMap}</p>
-              )}
-            </div>
-
-            {/* Action Buttons */}
-            <div className="flex gap-3 pt-2">
-              <button
-                onClick={handleSaveNewAddress}
-                className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
-                disabled={
-                  !tempAddress.details?.trim() ||
-                  !tempAddress.coordinates ||
-                  !tempAddress.label?.trim() ||
-                  !userPhone?.trim()
-                }
-              >
-                {t.saveAddress}
-              </button>
-              <button
-                onClick={() => {
-                  setIsAdding(false);
-                  setTempAddress({
-                    label: "",
-                    phone: userPhone || "",
-                    details: "",
-                    coordinates: { lat: 0, lng: 0 },
-                    api_user_id: user?.id,
-                  });
-                }}
-                className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
-              >
-                {t.cancel}
-              </button>
-            </div>
-          </div>
-        ) : user?.role !== "sale" ? (
-          <button
-            onClick={() => setIsAdding(true)}
-            className="mt-2 w-full py-3 bg-gray-100 border border-dashed border-gray-300 rounded-xl hover:bg-gray-50 font-medium flex items-center justify-center gap-2"
-          >
-            <span className="text-xl">+</span>
-            {t.addNewAddress}
-          </button>
-        ) : null}
-      </section>
+          </section>
+        </>
+      )}
 
       {/* Map Modal */}
       {showMap && (
@@ -975,36 +1015,6 @@ const CombinedCheckoutPage = () => {
           </div>
         </div>
       )}
-
-      {/* Payment Method */}
-      <section className="flex flex-col gap-3">
-        <h2 className="text-2xl font-semibold text-gray-800">{t.paymentMethod}</h2>
-        {paymentMethods.map((method) => (
-          <div
-            key={method.name}
-            onClick={() => handlePaymentMethodSelect(method.name)}
-            className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${paymentMethod === method.name
-              ? "border-blue-500 bg-blue-50 shadow-lg"
-              : "border-gray-200 hover:shadow-md"
-              }`}
-          >
-            <div className="flex items-center gap-4">
-              <img
-                src={method.image}
-                alt={method.name}
-                className="w-12 h-12 object-contain"
-                onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
-              />
-              <p className="font-semibold text-gray-700">{method.name}</p>
-            </div>
-            {paymentMethod === method.name && method.name !== "QR" && (
-              <p className="text-sm text-gray-500 mt-2">
-                You will pay with cash upon delivery
-              </p>
-            )}
-          </div>
-        ))}
-      </section>
 
       {/* QR Popup */}
       {showQRPopup && (

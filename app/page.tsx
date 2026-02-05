@@ -4,7 +4,7 @@ import SearchBar from "@/components/SearchBar";
 import Categories from "@/components/Categories";
 import Products from "@/components/Products";
 import RewardSection from "./components/RewardSection";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import api from "@/api/api";
 import { useLanguage } from "@/context/LanguageContext";
 
@@ -13,6 +13,7 @@ interface ProductData {
   is_active: number;
   product_id: number;
   product: {
+    category_name: string;
     id: number;
     name: string;
     price: string | number | null;
@@ -184,7 +185,6 @@ export default function ProductPage() {
 
   // Fetch products based on selected category with cache support
   const fetchProducts = useCallback(async (category: string, search: string, forceRefresh: boolean = false) => {
-    // Prevent multiple simultaneous fetches
     if (isFetching.current) return;
     
     setIsLoading(true);
@@ -192,122 +192,62 @@ export default function ProductPage() {
     isFetching.current = true;
     
     try {
-      // For "All" category without search, check cache first (unless forcing refresh)
-      if (!forceRefresh && (category === "All" || category === "ទាំងអស់") && !search.trim()) {
-        const cachedProducts = loadProductsFromCache();
-        if (cachedProducts && cachedProducts.length > 0 && !isUsingCache) {
-          setAllProducts(cachedProducts);
+      // 1. If we are looking for "All" and have cache, use it immediately
+      const isAll = category === t.all || category === "All" || category === "ទាំងអស់";
+      
+      if (!forceRefresh && isAll && !search.trim()) {
+        const cached = loadProductsFromCache();
+        if (cached) {
+          setAllProducts(cached);
           setIsUsingCache(true);
-          console.log('Using cached all products:', cachedProducts.length);
+          // If we have cache, we still fetch in the background to update, 
+          // but we stop the loading spinner for better UX
+          setIsLoading(false); 
         }
       }
-      
-      // Check in-memory category cache if not searching
-      if (!forceRefresh && categoryCache[category] && !search.trim()) {
-        console.log(`Using in-memory cache for category: "${category}"`);
-        setAllProducts(categoryCache[category]);
-        setIsLoading(false);
-        isFetching.current = false;
-        return;
-      }
-      
-      // Build URL based on category
+  
+      // 2. Build Request
       let url = "/product/all";
       const params = new URLSearchParams();
+      if (!isAll) params.append('category', category);
+      if (search.trim()) params.append('search', search);
       
-      if (category !== "All" && category !== "ទាំងអស់") {
-        params.append('category', category);
-      }
-      
-      if (search.trim()) {
-        params.append('search', search);
-      }
-      
-      const queryString = params.toString();
-      if (queryString) {
-        url += `?${queryString}`;
-      }
-      
-      console.log(`Fetching products from API: ${url}`);
-      
-      const res = await api.get(url);
-      let productsData: ProductData[] = [];
-      
-      // Handle different response formats
-      if (Array.isArray(res.data)) {
-        productsData = res.data;
-      } else if (res.data?.data && Array.isArray(res.data.data)) {
-        productsData = res.data.data;
-      } else if (res.data && typeof res.data === 'object') {
-        // Try to extract array from object
-        const values = Object.values(res.data);
-        if (values.length > 0 && Array.isArray(values[0])) {
-          productsData = values[0] as ProductData[];
-        }
-      }
-      
-      console.log(`API returned ${productsData.length} products for category: ${category}`);
-      
-      // Only update if we got valid data
+      const res = await api.get(`${url}${params.toString() ? `?${params.toString()}` : ''}`);
+      const productsData = res.data?.data || res.data || [];
+  
       if (Array.isArray(productsData)) {
         setAllProducts(productsData);
         setIsUsingCache(false);
         
-        // Save to localStorage if fetching all products without search
-        if ((category === "All" || category === "ទាំងអស់") && !search.trim() && productsData.length > 0) {
+        // Update persistent cache only if it's the "All" list
+        if (isAll && !search.trim()) {
           saveProductsToCache(productsData);
         }
-        
-        // Cache the results if not searching and we have data
-        if (!search.trim() && productsData.length > 0) {
-          setCategoryCache(prev => ({
-            ...prev,
-            [category]: productsData
-          }));
-        }
-      } else {
-        console.warn('API did not return an array of products:', res.data);
-        // Don't overwrite existing data with empty array
-        if (allProducts.length === 0) {
-          // Try cache as fallback
-          const cachedProducts = loadProductsFromCache();
-          if (cachedProducts && cachedProducts.length > 0) {
-            setAllProducts(cachedProducts);
-            setIsUsingCache(true);
-            setError('API returned invalid data format. Showing cached products.');
-          } else {
-            setError('No products available.');
-          }
-        }
       }
-      
     } catch (err: any) {
-      console.error("Error fetching products:", err);
-      
-      // Try to use cache as fallback
-      if ((category === "All" || category === "ទាំងអស់") && !search.trim()) {
-        const cachedProducts = loadProductsFromCache();
-        if (cachedProducts && cachedProducts.length > 0) {
-          console.log('Using cached products as fallback after error:', cachedProducts.length);
-          setAllProducts(cachedProducts);
-          setIsUsingCache(true);
-          setError(`Network error. Showing cached products (${cachedProducts.length} items)`);
-        } else {
-          setError(`Failed to load products: ${err.message}`);
-        }
-      } else if (categoryCache[category] && !search.trim()) {
-        // Use in-memory category cache
-        setAllProducts(categoryCache[category]);
-        setIsUsingCache(true);
-        setError(`Network error. Showing cached category products.`);
-      } else {
-        setError(`Failed to load products: ${err.message}`);
-      }
+      setError("Failed to sync products. Showing offline data.");
+      const cached = loadProductsFromCache();
+      if (cached) setAllProducts(cached);
     } finally {
       setIsLoading(false);
       isFetching.current = false;
     }
-  }, [categoryCache, allProducts.length, isUsingCache]);
+  }, [t.all]);
+
+  const filteredData = useMemo(() => {
+    return allProducts.filter((item) => {
+      // Category Filter
+      const isAll = selectedCategory === t.all || selectedCategory === "All" || selectedCategory === "ទាំងអស់";
+      const matchesCategory = isAll || item.product.category_name === selectedCategory; // Adjust property name to match your API
+  
+      // Search Filter
+      const matchesSearch = item.product.name
+        .toLowerCase()
+        .includes(searchQuery.toLowerCase());
+  
+      return matchesCategory && matchesSearch;
+    });
+  }, [allProducts, selectedCategory, searchQuery, t.all]);
 
   // Fetch all products on mount (after categories are loaded)
   useEffect(() => {
@@ -434,7 +374,7 @@ export default function ProductPage() {
               selectedCategory={selectedCategory} 
               searchQuery={searchQuery}
               allProducts={allProducts}
-              filteredProducts={allProducts}
+              filteredProducts={filteredData}
             />
           </div>
         )}
