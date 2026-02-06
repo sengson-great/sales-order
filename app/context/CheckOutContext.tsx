@@ -530,26 +530,21 @@ export const CheckoutProvider = ({ children }: { children: ReactNode }) => {
 
     // Determine correct IDs
     let apiUserId: number;
-    let salesUserId: number | undefined;
+    let salesUserId: number | undefined = undefined; // Default to undefined
     let isSalesOrder = false;
 
-    console.log('🔍 DEBUG - Sales Mode Check:', {
-      isSalesMode,
-      salesUser,
-      salesUser_id: salesUser?.id,
-      salesUserId,
-      hasSalesUser: !!salesUser,
-      isSalesOrder,
-    });
-    
     if (isSalesMode && salesUser) {
       isSalesOrder = true;
       salesUserId = salesUser.id;
       apiUserId = 20;
+      
+      console.log('✅ Sales mode - Sales User ID:', salesUserId);
     } else if (regularUser) {
-      apiUserId = regularUser.id;
-      salesUserId = salesUser?.id;
       isSalesOrder = false;
+      apiUserId = regularUser.id;
+      salesUserId = undefined; // Explicitly undefined for clarity
+      
+      console.log('✅ Regular mode - No sales user ID');
     } else {
       toast.error("You must be logged in to place an order!");
       return;
