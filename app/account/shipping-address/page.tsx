@@ -220,8 +220,9 @@ export default function ShippingAddressPage() {
       formData.append('coordinates[lng]', String(newAddress.coordinates.lng));
     }
     
-    if (imageFile) {
-      formData.append('place_pic', imageFile);
+    // FIX: Change 'imageFile' to 'locationImage' to match your state
+    if (locationImage) {
+      formData.append('place_pic', locationImage);
     }
   
     setLoading(true);
@@ -229,12 +230,12 @@ export default function ShippingAddressPage() {
       if (isEditing && editingId) {
         // Laravel multipart bug fix: Use POST + _method PUT
         formData.append('_method', 'PUT');
-        await api.post(`/addresses/${editingId}`, formData, {
+        const res = await api.post(`/addresses/${editingId}`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         toast.success("Updated successfully");
       } else {
-        await api.post("/addresses", formData, {
+        const res = await api.post("/addresses", formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         toast.success("Saved successfully");
@@ -242,6 +243,7 @@ export default function ShippingAddressPage() {
       fetchAddress();
       handleCancel();
     } catch (err: any) {
+      console.error("Error saving:", err.response?.data);
       toast.error("Failed to save address");
     } finally {
       setLoading(false);
@@ -249,7 +251,6 @@ export default function ShippingAddressPage() {
   };
 
   const handleEditAddress = (address: Address) => {
-    console.log("Editing address:", address);
     setNewAddress({
       ...address,
       api_user_id: user?.id || salesUser?.id || undefined,
@@ -260,9 +261,9 @@ export default function ShippingAddressPage() {
     setShowFormModal(true);
     setSelectedAddress(address.id || null);
     
-    // Set image preview if exists
+    // FIX: Prepend your API URL to the stored path
     if (address.place_pic) {
-      setImagePreview(address.place_pic);
+      setImagePreview(`${process.env.NEXT_PUBLIC_API_URL}/storage/${address.place_pic}`);
     }
   };
 
