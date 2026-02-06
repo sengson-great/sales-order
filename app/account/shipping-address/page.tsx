@@ -752,79 +752,81 @@ export default function ShippingAddressPage() {
               </div>
 
               {/* Address Details */}
-              <div className="flex justify-between items-center">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    {isSalesOnField ? "Location Details *" : 
-                    salesUser?.role === "sale" ? "Delivery Address *" : "Address Details *"}
-                  </label>
-                  <div className="space-y-3">
-                    <textarea
-                      placeholder={
-                        isSalesOnField ? "Describe the customer location, landmark, or any details..." : 
-                        salesUser?.role === "sale" 
-                          ? "Street, building, floor, delivery notes..." 
-                          : "Full address details..."
-                      }
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      value={newAddress.details}
-                      onChange={(e) => setNewAddress({ ...newAddress, details: e.target.value })}
-                      rows={4}
-                    />
-                  </div>
-                </div>
-                              {/* Location Detection for Sales On Field - One Click */}
+              <div className="space-y-4">
+                {/* Label */}
+                <label className="block text-sm font-semibold text-gray-800">
+                  {isSalesOnField ? "Location Details *" : 
+                  salesUser?.role === "sale" ? "Delivery Address *" : "Address Details *"}
+                </label>
+
+                {/* Textarea: Full width for easy typing */}
+                <textarea
+                  placeholder={
+                    isSalesOnField ? "Describe the customer location, landmark, or any details..." : 
+                    salesUser?.role === "sale" 
+                      ? "Street, building, floor, delivery notes..." 
+                      : "Full address details..."
+                  }
+                  className="w-full p-4 border border-gray-300 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-all resize-none text-base"
+                  value={newAddress.details}
+                  onChange={(e) => setNewAddress({ ...newAddress, details: e.target.value })}
+                  rows={3}
+                />
+
+                {/* GPS Action Section - Full width for thumb-friendly tapping */}
                 {isSalesOnField && (
-                  <div className="space-y-4">
-                    <div>                      
-                      {/* Current Location Detection Button - One Click */}
-                      <button
-                        type="button"
-                        onClick={handleDetectCurrentLocation}
-                        disabled={isDetectingLocation}
-                        className={`w-full p-4 border rounded-lg flex flex-col items-center justify-center gap-3 ${
-                          isDetectingLocation 
-                            ? "bg-gray-100 text-gray-500 cursor-wait" 
-                            : newAddress.coordinates
-                              ? "bg-green-50 text-green-700 border-green-300"
-                              : "bg-blue-50 text-blue-600 hover:bg-blue-100 border-blue-200"
-                        }`}
-                      >
-                        {isDetectingLocation ? (
-                          <>
-                            <svg className="animate-spin h-8 w-8 text-blue-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                  <div className="w-full">
+                    <button
+                      type="button"
+                      onClick={handleDetectCurrentLocation}
+                      disabled={isDetectingLocation}
+                      className={`w-full flex items-center justify-between p-4 border-2 rounded-xl transition-all active:scale-[0.98] ${
+                        isDetectingLocation 
+                          ? "bg-gray-50 border-gray-200 cursor-wait" 
+                          : newAddress.coordinates
+                            ? "bg-green-50 border-green-500 text-green-700 shadow-sm"
+                            : "bg-blue-50 border-blue-200 text-blue-700 shadow-sm ring-1 ring-blue-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-4">
+                        <div className={`p-2 rounded-full ${
+                          isDetectingLocation ? "bg-gray-200" : newAddress.coordinates ? "bg-green-500 text-white" : "bg-blue-600 text-white"
+                        }`}>
+                          {isDetectingLocation ? (
+                            <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                             </svg>
-                            <span className="text-lg font-medium">Capturing GPS...</span>
-                          </>
-                        ) : newAddress.coordinates ? (
-                          <>
-                            <div className="text-3xl">📍</div>
-                            <div className="text-center">
-                              <span className="text-lg font-medium">GPS Location Captured ✓</span>
-                              <p className="text-sm mt-1 text-gray-600">
-                                GPS coordinates saved successfully
-                              </p>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div className="text-3xl">📍</div>
-                            <div className="text-center">
-                              <span className="text-lg font-medium">Click to Capture GPS</span>
-                              <p className="text-sm mt-1">One click to capture current GPS location</p>
-                            </div>
-                          </>
-                        )}
-                      </button>
-                      
-                      {!newAddress.coordinates && !isDetectingLocation && (
-                        <p className="text-sm text-red-500 mt-2">
-                          Please click the button above to capture GPS location
-                        </p>
+                          ) : (
+                            <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2.5" d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
+                            </svg>
+                          )}
+                        </div>
+                        
+                        <div className="text-left">
+                          <span className="block text-sm font-bold leading-none">
+                            {isDetectingLocation ? "Accessing GPS..." : newAddress.coordinates ? "GPS Location Captured" : "Tag Current Location"}
+                          </span>
+                          <span className="text-xs opacity-80">
+                            {isDetectingLocation ? "Please wait a moment" : newAddress.coordinates ? "Coordinates saved successfully" : "One-tap GPS detection"}
+                          </span>
+                        </div>
+                      </div>
+
+                      {!isDetectingLocation && (
+                        <div className="text-xl">
+                          {newAddress.coordinates ? "✅" : "→"}
+                        </div>
                       )}
-                    </div>
+                    </button>
+
+                    {!newAddress.coordinates && !isDetectingLocation && (
+                      <p className="text-[11px] font-semibold text-red-500 mt-2 ml-1 flex items-center gap-1">
+                        <span className="text-sm">⚠️</span> Required: Please capture your current location
+                      </p>
+                    )}
                   </div>
                 )}
               </div>
