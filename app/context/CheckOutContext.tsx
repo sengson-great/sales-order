@@ -532,6 +532,15 @@ export const CheckoutProvider = ({ children }: { children: ReactNode }) => {
     let apiUserId: number;
     let salesUserId: number | undefined;
     let isSalesOrder = false;
+
+    console.log('🔍 DEBUG - Sales Mode Check:', {
+      isSalesMode,
+      salesUser,
+      salesUser_id: salesUser?.id,
+      salesUserId,
+      hasSalesUser: !!salesUser,
+      isSalesOrder,
+    });
     
     if (isSalesMode && salesUser) {
       isSalesOrder = true;
@@ -675,6 +684,12 @@ export const CheckoutProvider = ({ children }: { children: ReactNode }) => {
         toast.error("Order failed. Please try again.");
       }
     }
+    console.log('🔍 DEBUG - Final payload:', {
+      sales_user_id_in_payload: payload.sales_user_id,
+      sales_person_name_in_payload: payload.sales_person_name,
+      is_sales_order_in_payload: payload.is_sales_order,
+      full_payload_keys: Object.keys(payload),
+    });
   };
 
   // --- PLACE REWARD ORDER ---
