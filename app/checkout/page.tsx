@@ -478,6 +478,7 @@ const CombinedCheckoutPage = () => {
       api_user_id: user?.id,
     });
   };
+
   return (
     <div className="flex flex-col h-full gap-6 overflow-y-auto hide-scrollbar pb-24">
       <Header title={t.checkout} />
