@@ -548,7 +548,6 @@ export const CheckoutProvider = ({ children }: { children: ReactNode }) => {
       apiUserId = 20;
     } else if (regularUser) {
       apiUserId = regularUser.id;
-      salesUserId = undefined;
       isSalesOrder = false;
     } else {
       toast.error("You must be logged in to place an order!");
