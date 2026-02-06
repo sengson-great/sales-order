@@ -17,7 +17,7 @@ export type Address = {
   phone?: string;
   details?: string;
   coordinates?: { lat: number; lng: number };
-  location_image?: string; // Added for location image
+  place_pic?: string;
 };
 
 const containerStyle = { width: "100%", height: "400px" };
@@ -36,6 +36,7 @@ export default function ShippingAddressPage() {
   const [showMapModal, setShowMapModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
   
   // Search and pagination states
   const [searchQuery, setSearchQuery] = useState("");
@@ -48,7 +49,7 @@ export default function ShippingAddressPage() {
     details: "",
     coordinates: undefined,
     api_user_id: user?.id || salesUser?.id || undefined,
-    location_image: ""
+    place_pic: ""
   });
 
   // Current location detection state
@@ -171,7 +172,7 @@ export default function ShippingAddressPage() {
   const handleRemoveImage = () => {
     setLocationImage(null);
     setImagePreview("");
-    setNewAddress(prev => ({ ...prev, location_image: "" }));
+    setNewAddress(prev => ({ ...prev, place_pic: "" }));
   };
 
   // Filter addresses based on search query
@@ -203,142 +204,45 @@ export default function ShippingAddressPage() {
   }, [searchQuery]);
 
   const handleSaveAddress = async () => {
-    // Validation
     if (!newAddress.label || !newAddress.details) {
       toast.error("Please fill in all required fields.");
       return;
     }
-
-    // For salesOnField: require location and phone
-    if (isSalesOnField) {
-      if (!newAddress.phone) {
-        toast.error("Please enter customer phone number");
-        return;
-      }
-      if (!newAddress.coordinates) {
-        toast.error("Please detect current location");
-        return;
-      }
+  
+    const formData = new FormData();
+    formData.append('label', newAddress.label.trim());
+    formData.append('details', newAddress.details.trim());
+    formData.append('api_user_id', String(newAddress.api_user_id));
+    formData.append('phone', newAddress.phone?.trim() || "");
+    
+    if (newAddress.coordinates) {
+      formData.append('coordinates[lat]', String(newAddress.coordinates.lat));
+      formData.append('coordinates[lng]', String(newAddress.coordinates.lng));
     }
-    // For regular sales: require phone
-    else if (salesUser?.role === "sale") {
-      if (!newAddress.phone) {
-        toast.error("Please enter customer phone number");
-        return;
-      }
-    } else {
-      // For regular users: phone is optional (can use profile phone)
-      if (!newAddress.phone && !user?.phone && !user?.mobile) {
-        toast.error("Please enter phone number or add it to your profile");
-        return;
-      }
+    
+    if (imageFile) {
+      formData.append('place_pic', imageFile);
     }
-
-    if (!newAddress.api_user_id) {
-      toast.error("User not authenticated");
-      return;
-    }
-
+  
     setLoading(true);
     try {
-      const formData = new FormData();
-      formData.append('label', newAddress.label.trim());
-      formData.append('details', newAddress.details.trim());
-      formData.append('api_user_id', newAddress.api_user_id.toString());
-      
-      if (newAddress.phone) {
-        formData.append('phone', newAddress.phone.trim());
-      }
-      
-      if (newAddress.coordinates) {
-        formData.append('coordinates[lat]', newAddress.coordinates.lat.toString());
-        formData.append('coordinates[lng]', newAddress.coordinates.lng.toString());
-      }
-      
-      // Append image if uploaded
-      if (locationImage) {
-        formData.append('location_image', locationImage);
-      }
-
-      let saved: Address;
-      
       if (isEditing && editingId) {
-        // Edit existing address
-        console.log("Editing address ID:", editingId, "Data:", newAddress);
-        
-        if (locationImage) {
-          formData.append('_method', 'PUT');
-          const res = await api.post(`/addresses/${editingId}`, formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            }
-          });
-          saved = res.data.data;
-        } else {
-          const res = await api.put(`/addresses/${editingId}`, {
-            ...newAddress,
-            label: newAddress.label.trim(),
-            phone: newAddress.phone?.trim() || user?.phone || user?.mobile || "",
-            details: newAddress.details.trim(),
-            coordinates: newAddress.coordinates,
-            api_user_id: newAddress.api_user_id
-          });
-          saved = res.data.data;
-        }
-        
-        console.log("Updated address response:", saved);
-        
-        setSavedAddresses(prev => 
-          prev.map(addr => addr.id === editingId ? saved : addr)
-        );
-        setSelectedAddress(saved.id ?? null);
-        toast.success(t.addressUpdatedSuccessfully || "Address updated successfully");
-        
-        fetchAddress();
+        // Laravel multipart bug fix: Use POST + _method PUT
+        formData.append('_method', 'PUT');
+        await api.post(`/addresses/${editingId}`, formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        toast.success("Updated successfully");
       } else {
-        // Add new address
-        console.log("Adding new address:", newAddress);
-        
-        if (locationImage) {
-          const res = await api.post("/addresses", formData, {
-            headers: {
-              'Content-Type': 'multipart/form-data'
-            }
-          });
-          saved = res.data.data;
-        } else {
-          const res = await api.post("/addresses", {
-            ...newAddress,
-            label: newAddress.label.trim(),
-            phone: newAddress.phone?.trim() || user?.phone || user?.mobile || "",
-            details: newAddress.details.trim()
-          });
-          saved = res.data.data;
-        }
-        
-        console.log("Saved address response:", saved);
-        
-        setSavedAddresses(prev => [...prev, saved]);
-        setSelectedAddress(saved.id ?? null);
-        toast.success(t.addressSavedSuccessfully || "Address saved successfully");
-        
-        fetchAddress();
+        await api.post("/addresses", formData, {
+          headers: { 'Content-Type': 'multipart/form-data' }
+        });
+        toast.success("Saved successfully");
       }
-
-      resetForm();
-      setShowFormModal(false);
+      fetchAddress();
+      handleCancel();
     } catch (err: any) {
-      console.error("Save/Edit error:", err);
-      console.error("Error response:", err.response?.data);
-      console.error("Error status:", err.response?.status);
-      
-      if (err.response?.status === 404) {
-        toast.error("API endpoint not found. Please check backend routes.");
-      } else if (err.response?.data?.message) {
-        toast.error(err.response.data.message);
-      } else {
-        toast.error(isEditing ? "Failed to update address" : "Failed to save address");
-      }
+      toast.error("Failed to save address");
     } finally {
       setLoading(false);
     }
@@ -357,8 +261,8 @@ export default function ShippingAddressPage() {
     setSelectedAddress(address.id || null);
     
     // Set image preview if exists
-    if (address.location_image) {
-      setImagePreview(address.location_image);
+    if (address.place_pic) {
+      setImagePreview(address.place_pic);
     }
   };
 
@@ -416,7 +320,7 @@ export default function ShippingAddressPage() {
       details: "",
       coordinates: undefined,
       api_user_id: user?.id || salesUser?.id || undefined,
-      location_image: ""
+      place_pic: ""
     });
     setIsEditing(false);
     setEditingId(null);
@@ -574,7 +478,7 @@ export default function ShippingAddressPage() {
                   <div className="flex-1">
                     <div className="flex items-center gap-2">
                       <span className="font-semibold text-lg">{addr.label}</span>
-                      {isSalesOnField && addr.location_image && (
+                      {isSalesOnField && addr.place_pic && (
                         <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded-full">
                           📍 Has Location Photo
                         </span>
