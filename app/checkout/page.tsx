@@ -91,43 +91,43 @@ const CombinedCheckoutPage = () => {
   const IMAGE_URL = process.env.NEXT_PUBLIC_IMAGE_URL!;
   const currentSelectedAddress = selectedAddress === "current" ? currentAddress : selectedAddress;
 
-// FIXED VERSION of the custom payment fetch:
-useEffect(() => {
-  const fetchCustomPaymentMethods = async () => {
-    try {
-      setLoading(true);
-      const response = await api.get('/business/1/custom-payments');
-      
-      if (response.data.success && response.data.custom_payments) {
-        const customPayments = response.data.custom_payments;
-        const customMethods: any[] = [];
+  // FIXED VERSION of the custom payment fetch:
+  useEffect(() => {
+    const fetchCustomPaymentMethods = async () => {
+      try {
+        setLoading(true);
+        const response = await api.get('/business/1/custom-payments');
         
-        // SAFER: Use Object.entries instead of keyof
-        Object.entries(customPayments).forEach(([key, value]) => {
-          if (key.startsWith('custom_pay_') && value && value !== null) {
-            customMethods.push({
-              id: key,
-              name: value,
-              image: `/${key}.jpg` || '/payment-default.jpg',
-              type: 'custom' as const
-            });
-          }
-        });
-        
-        setPaymentMethods(prev => [...prev, ...customMethods]);
+        if (response.data.success && response.data.custom_payments) {
+          const customPayments = response.data.custom_payments;
+          const customMethods: any[] = [];
+          
+          // SAFER: Use Object.entries instead of keyof
+          Object.entries(customPayments).forEach(([key, value]) => {
+            if (key.startsWith('custom_pay_') && value && value !== null) {
+              customMethods.push({
+                id: key,
+                name: value,
+                image: `/${key}.jpg` || '/payment-default.jpg',
+                type: 'custom' as const
+              });
+            }
+          });
+          
+          setPaymentMethods(prev => [...prev, ...customMethods]);
+        }
+      } catch (error) {
+        console.error('Failed to fetch payment methods:', error);
+        toast.error('Failed to load custom payment methods');
+      } finally {
+        setLoading(false);
       }
-    } catch (error) {
-      console.error('Failed to fetch payment methods:', error);
-      toast.error('Failed to load custom payment methods');
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
 
-  if (user) {
-    fetchCustomPaymentMethods();
-  }
-}, [user, setLoading]);
+    if (user) {
+      fetchCustomPaymentMethods();
+    }
+  }, [user, setLoading]);
 
   // Check if user is actively searching or has search results
   const isSearching = useMemo(() => {
@@ -478,7 +478,6 @@ useEffect(() => {
       api_user_id: user?.id,
     });
   };
-
   return (
     <div className="flex flex-col h-full gap-6 overflow-y-auto hide-scrollbar pb-24">
       <Header title={t.checkout} />
@@ -556,6 +555,12 @@ useEffect(() => {
                 ) : (
                   <div className="flex justify-between items-center">
                     <span>No customer found with "{searchQuery}"</span>
+                    <button
+                      onClick={handleAddNewCustomer}
+                      className="text-blue-600 hover:text-blue-800 font-medium text-sm"
+                    >
+                      + Add New Customer
+                    </button>
                   </div>
                 )}
               </div>
@@ -633,121 +638,198 @@ useEffect(() => {
             </div>
           )}
 
-          {/* Customer Form - Show when actively adding OR when searching with no results */}
+          {/* CUSTOMER FORM MODAL - Similar to ShippingAddressPage */}
           {(isAdding || (searchQuery.trim() && filteredAddresses.length === 0)) && (
-            <div className="bg-white flex flex-col gap-4 p-4 border border-gray-200 rounded-xl mt-3">
-              <h3 className="text-lg font-semibold text-gray-800">
-                {selectedAddress && typeof selectedAddress !== 'string'
-                  ? "Update Customer Details"
-                  : filteredAddresses.length === 0 && searchQuery.trim()
-                    ? "Create New Customer"
-                    : "Add New Customer"}
-              </h3>
-
-              {/* Name / Label */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Customer Name *
-                  {isLikelyPhoneNumber && searchQuery.trim() && (
-                    <span className="text-xs text-gray-500 ml-2">(Detected as phone number, please enter name)</span>
-                  )}
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter customer name"
-                  value={tempAddress.label || ""}
-                  onChange={(e) => setTempAddress({ ...tempAddress, label: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t.phone} *
-                  {!isLikelyPhoneNumber && searchQuery.trim() && (
-                    <span className="text-xs text-gray-500 ml-2">(Detected as name, please enter phone number)</span>
-                  )}
-                </label>
-                <input
-                  type="tel"
-                  placeholder="Customer phone number"
-                  value={tempAddress.phone || ""}
-                  onChange={(e) => setTempAddress({ ...tempAddress, phone: e.target.value })}
-                  className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                />
-              </div>
-
-              {/* Address Details */}
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  {t.details} *
-                </label>
-                <div className="flex justify-between items-center gap-2">
-                  <textarea
-                    placeholder="#123, Sen Sok"
-                    value={tempAddress.details || ""}
-                    onChange={(e) => setTempAddress({ ...tempAddress, details: e.target.value })}
-                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    rows={3}
-                  />
-                  {salesUser?.role === 'salesOnline' && <input
-                    type="button"
-                    readOnly
-                    value={t.clickToSelectLocation}
-                    onClick={() => setShowMap(true)}
-                    className="p-2 border rounded-lg text-white cursor-pointer bg-blue-500 hover:bg-blue-600"
-                    placeholder={t.clickToSelectLocation}
-                  />}
-                  {salesUser?.role === 'salesOnField' && <input
-                    type="button"
-                    readOnly
-                    value={t.currentLocation}
-                    onClick={handleDetectCurrentLocation}
-                    className="p-2 border rounded-lg text-white cursor-pointer bg-blue-500 hover:bg-blue-600"
-                    placeholder={t.currentLocation}
-                  />}
+            <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
+              <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                {/* Modal Header */}
+                <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+                  <h3 className="text-lg font-semibold text-gray-800">
+                    {selectedAddress && typeof selectedAddress !== 'string'
+                      ? "Edit Customer"
+                      : "Add New Customer"}
+                  </h3>
+                  <button
+                    onClick={() => {
+                      setIsAdding(false);
+                      setSearchQuery("");
+                      setShowSearchResults(false);
+                      setTempAddress({
+                        label: "",
+                        phone: user?.role === "sale" ? "" : userPhone || "",
+                        details: "",
+                        coordinates: { lat: 0, lng: 0 },
+                        api_user_id: user?.id,
+                      });
+                    }}
+                    className="text-gray-400 hover:text-gray-600 text-2xl p-1"
+                  >
+                    ×
+                  </button>
                 </div>
-              </div>
 
-              {/* Location Picker */}
-              <div>
-                {!tempAddress.coordinates && (
-                  <p className="text-sm text-red-500 mt-1">{t.pleaseSelectALocationOnTheMap}</p>
-                )}
-              </div>
+                {/* Modal Body */}
+                <div className="p-6 space-y-4">
+                  {/* Name Field */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Customer Name *
+                      {isLikelyPhoneNumber && searchQuery.trim() && (
+                        <span className="text-xs text-gray-500 ml-2">(Detected as phone number, please enter name)</span>
+                      )}
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter customer name"
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={tempAddress.label || ""}
+                      onChange={(e) => setTempAddress({ ...tempAddress, label: e.target.value })}
+                    />
+                  </div>
 
-              {/* Action Buttons */}
-              <div className="flex gap-3 pt-2">
-                <button
-                  onClick={handleSaveNewAddress}
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
-                  disabled={
-                    !tempAddress.details?.trim() ||
-                    !tempAddress.coordinates ||
-                    !tempAddress.label?.trim() ||
-                    !tempAddress.phone?.trim()
-                  }
-                >
-                  {selectedAddress && typeof selectedAddress !== 'string' ? "Update Customer" : "Save Customer"}
-                </button>
-                <button
-                  onClick={() => {
-                    setIsAdding(false);
-                    setSearchQuery("");
-                    setShowSearchResults(false);
-                    setTempAddress({
-                      label: "",
-                      phone: "",
-                      details: "",
-                      coordinates: { lat: 0, lng: 0 },
-                      api_user_id: user?.id,
-                    });
-                  }}
-                  className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
-                >
-                  {t.cancel}
-                </button>
+                  {/* Phone Field */}
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">
+                      Phone *
+                      {!isLikelyPhoneNumber && searchQuery.trim() && (
+                        <span className="text-xs text-gray-500 ml-2">(Detected as name, please enter phone number)</span>
+                      )}
+                    </label>
+                    <input
+                      type="tel"
+                      placeholder="Customer phone number"
+                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      value={tempAddress.phone || ""}
+                      onChange={(e) => setTempAddress({ ...tempAddress, phone: e.target.value })}
+                    />
+                  </div>
+
+                  {/* Address Details with GPS Button */}
+                  <div className="w-full">
+                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                      Address Details *
+                    </label>
+                    
+                    <div className="flex gap-2 items-stretch">
+                      {/* Textarea */}
+                      <div className="flex-[2.5]">
+                        <textarea
+                          placeholder="Street, building, floor..."
+                          className="w-full h-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"
+                          value={tempAddress.details || ""}
+                          onChange={(e) => setTempAddress({ ...tempAddress, details: e.target.value })}
+                          rows={3}
+                        />
+                      </div>
+
+                      {/* GPS Button - Compact but vertically tall to match textarea */}
+                      <div className="flex-1 min-w-[100px]">
+                        <button
+                          type="button"
+                          onClick={handleDetectCurrentLocation}
+                          disabled={isDetectingLocation}
+                          className={`w-full h-full flex flex-col items-center justify-center rounded-xl border-2 transition-all active:scale-95 ${
+                            isDetectingLocation 
+                              ? "bg-gray-100 border-gray-200" 
+                              : tempAddress.coordinates && tempAddress.coordinates.lat !== 0
+                                ? "bg-green-50 border-green-500 text-green-700 shadow-inner"
+                                : "bg-blue-600 border-blue-600 text-white shadow-md active:bg-blue-700"
+                          }`}
+                        >
+                          {isDetectingLocation ? (
+                            <svg className="animate-spin h-6 w-6 text-blue-600" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                          ) : (
+                            <>
+                              <div className="text-xl mb-1">
+                                {tempAddress.coordinates && tempAddress.coordinates.lat !== 0 ? "✅" : "📍"}
+                              </div>
+                              <span className="text-[10px] font-bold uppercase text-center leading-tight">
+                                {tempAddress.coordinates && tempAddress.coordinates.lat !== 0 ? "Saved" : "Tap GPS"}
+                              </span>
+                            </>
+                          )}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Error message below the row */}
+                    {!tempAddress.coordinates && !isDetectingLocation && (
+                      <p className="text-[10px] font-medium text-red-500 mt-1.5 flex items-center gap-1">
+                        <span>⚠️</span> Required: Tap the GPS button
+                      </p>
+                    )}
+                  </div>
+
+                  {/* Map Selection Button */}
+                  <div 
+                    onClick={() => setShowMap(true)}
+                    className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors flex flex-col items-center justify-center text-center"
+                  >
+                    {tempAddress.coordinates && tempAddress.coordinates.lat !== 0 ? (
+                      <div className="text-center">
+                        <div className="text-green-600 text-lg mb-1">✓ Location Selected</div>
+                        <p className="text-sm text-gray-600">
+                          Lat: {tempAddress.coordinates.lat.toFixed(6)}
+                          <br />
+                          Lng: {tempAddress.coordinates.lng.toFixed(6)}
+                        </p>
+                        {tempAddress.details && (
+                          <p className="text-xs text-gray-500 mt-2 truncate max-w-full">
+                            {tempAddress.details}
+                          </p>
+                        )}
+                        <p className="text-xs text-blue-600 mt-2">Click to change location</p>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="text-gray-400 text-2xl mb-2">📍</div>
+                        <p className="text-gray-600 font-medium">Click to select location on map</p>
+                        <p className="text-sm text-gray-500 mt-1">
+                          Select location by clicking on the map
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {/* Modal Footer */}
+                <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4">
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => {
+                        setIsAdding(false);
+                        setSearchQuery("");
+                        setShowSearchResults(false);
+                        setTempAddress({
+                          label: "",
+                          phone: user?.role === "sale" ? "" : userPhone || "",
+                          details: "",
+                          coordinates: { lat: 0, lng: 0 },
+                          api_user_id: user?.id,
+                        });
+                      }}
+                      className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleSaveNewAddress}
+                      disabled={
+                        !tempAddress.label?.trim() ||
+                        !tempAddress.phone?.trim() ||
+                        !tempAddress.details?.trim() ||
+                        !tempAddress.coordinates ||
+                        tempAddress.coordinates.lat === 0
+                      }
+                      className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
+                    >
+                      {selectedAddress && typeof selectedAddress !== 'string' ? "Update Customer" : "Save Customer"}
+                    </button>
+                  </div>
+                </div>
               </div>
             </div>
           )}
@@ -797,12 +879,12 @@ useEffect(() => {
             ))}
           </section>
 
-          {/* Shipping Address Section */}
-          <section className="flex flex-col gap-3">
-            {user?.role !== "sale" && <h2 className="text-2xl font-semibold text-gray-800">{t.shippingAddress}</h2>}
+          {/* Shipping Address Section for Regular Users */}
+          {user?.role !== "sale" && (
+            <section className="flex flex-col gap-3">
+              <h2 className="text-2xl font-semibold text-gray-800">{t.shippingAddress}</h2>
 
-            {/* Current Location */}
-            {user?.role !== "sale" && (
+              {/* Current Location */}
               <div
                 onClick={handleDetectCurrentLocation}
                 className={`p-4 rounded-xl border cursor-pointer flex items-center justify-between transition ${selectedAddress === "current" ? "border-blue-500 bg-blue-50" : "border-gray-200 hover:bg-gray-50"
@@ -825,140 +907,226 @@ useEffect(() => {
                   <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
                 )}
               </div>
-            )}
 
-            {/* Regular Users: Saved Addresses List */}
-            {user?.role !== "sale" && !isAdding && savedAddresses.length > 0 && (
-              <div className="flex flex-col gap-3">
-                {savedAddresses.map((addr) => (
-                  <div
-                    key={addr.id}
-                    onClick={() => setSelectedAddress(addr)}
-                    className={`p-4 rounded-xl border cursor-pointer flex items-center justify-between transition ${selectedAddress && typeof selectedAddress !== 'string' && (selectedAddress as ExtendedAddress).id === addr.id
-                      ? "border-blue-500 bg-blue-50"
-                      : "border-gray-200 hover:bg-gray-50"
-                      }`}
-                  >
-                    <div className="flex items-center gap-3">
-                      <span className="text-gray-400 text-xl">🏠</span>
+              {/* Regular Users: Saved Addresses List */}
+              {!isAdding && savedAddresses.length > 0 && (
+                <div className="flex flex-col gap-3">
+                  {savedAddresses.map((addr) => (
+                    <div
+                      key={addr.id}
+                      onClick={() => setSelectedAddress(addr)}
+                      className={`p-4 rounded-xl border cursor-pointer flex items-center justify-between transition ${selectedAddress && typeof selectedAddress !== 'string' && (selectedAddress as ExtendedAddress).id === addr.id
+                        ? "border-blue-500 bg-blue-50"
+                        : "border-gray-200 hover:bg-gray-50"
+                        }`}
+                    >
+                      <div className="flex items-center gap-3">
+                        <span className="text-gray-400 text-xl">🏠</span>
+                        <div>
+                          <p className="font-semibold">{addr.label}</p>
+                          <p className="text-sm text-gray-600">{addr.details}</p>
+                          <p className="text-xs text-gray-500 mt-1">{addr.phone}</p>
+                        </div>
+                      </div>
+                      {selectedAddress && typeof selectedAddress !== 'string' && (selectedAddress as ExtendedAddress).id === addr.id && (
+                        <span className="text-blue-500 font-bold">✓</span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Add New Address Button */}
+              {!isAdding && (
+                <button
+                  onClick={() => setIsAdding(true)}
+                  className="mt-2 w-full py-3 bg-gray-100 border border-dashed border-gray-300 rounded-xl hover:bg-gray-50 font-medium flex items-center justify-center gap-2"
+                >
+                  <span className="text-xl">+</span>
+                  {t.addNewAddress}
+                </button>
+              )}
+
+              {/* ADDRESS FORM MODAL - Similar to ShippingAddressPage */}
+              {isAdding && user?.role !== "sale" && (
+                <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
+                  <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+                    {/* Modal Header */}
+                    <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
+                      <h3 className="text-lg font-semibold text-gray-800">
+                        Add New Address
+                      </h3>
+                      <button
+                        onClick={() => {
+                          setIsAdding(false);
+                          setTempAddress({
+                            label: "",
+                            phone: userPhone || "",
+                            details: "",
+                            coordinates: { lat: 0, lng: 0 },
+                            api_user_id: user?.id,
+                          });
+                        }}
+                        className="text-gray-400 hover:text-gray-600 text-2xl p-1"
+                      >
+                        ×
+                      </button>
+                    </div>
+
+                    {/* Modal Body */}
+                    <div className="p-6 space-y-4">
+                      {/* Label Field */}
                       <div>
-                        <p className="font-semibold">{addr.label}</p>
-                        <p className="text-sm text-gray-600">{addr.details}</p>
-                        <p className="text-xs text-gray-500 mt-1">{addr.phone}</p>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Address Label *
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Home, Work, etc."
+                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          value={tempAddress.label || ""}
+                          onChange={(e) => setTempAddress({ ...tempAddress, label: e.target.value })}
+                        />
+                      </div>
+
+                      {/* Phone Field - Readonly from account */}
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 mb-2">
+                          Phone *
+                        </label>
+                        <div className="w-full p-3 border border-gray-300 rounded-lg bg-gray-50">
+                          {userPhone ? userPhone : "No phone in profile"}
+                        </div>
+                      </div>
+
+                      {/* Address Details with GPS Button */}
+                      <div className="w-full">
+                        <label className="block text-sm font-semibold text-gray-700 mb-2">
+                          Address Details *
+                        </label>
+                        
+                        <div className="flex gap-2 items-stretch">
+                          {/* Textarea */}
+                          <div className="flex-[2.5]">
+                            <textarea
+                              placeholder="Street, building, floor..."
+                              className="w-full h-full p-3 border border-gray-300 rounded-xl shadow-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm resize-none"
+                              value={tempAddress.details || ""}
+                              onChange={(e) => setTempAddress({ ...tempAddress, details: e.target.value })}
+                              rows={3}
+                            />
+                          </div>
+
+                          {/* GPS Button - Compact but vertically tall to match textarea */}
+                          <div className="flex-1 min-w-[100px]">
+                            <button
+                              type="button"
+                              onClick={handleDetectCurrentLocation}
+                              disabled={isDetectingLocation}
+                              className={`w-full h-full flex flex-col items-center justify-center rounded-xl border-2 transition-all active:scale-95 ${
+                                isDetectingLocation 
+                                  ? "bg-gray-100 border-gray-200" 
+                                  : tempAddress.coordinates && tempAddress.coordinates.lat !== 0
+                                    ? "bg-green-50 border-green-500 text-green-700 shadow-inner"
+                                    : "bg-blue-600 border-blue-600 text-white shadow-md active:bg-blue-700"
+                              }`}
+                            >
+                              {isDetectingLocation ? (
+                                <svg className="animate-spin h-6 w-6 text-blue-600" viewBox="0 0 24 24">
+                                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
+                                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                                </svg>
+                              ) : (
+                                <>
+                                  <div className="text-xl mb-1">
+                                    {tempAddress.coordinates && tempAddress.coordinates.lat !== 0 ? "✅" : "📍"}
+                                  </div>
+                                  <span className="text-[10px] font-bold uppercase text-center leading-tight">
+                                    {tempAddress.coordinates && tempAddress.coordinates.lat !== 0 ? "Saved" : "Tap GPS"}
+                                  </span>
+                                </>
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Error message below the row */}
+                        {!tempAddress.coordinates && !isDetectingLocation && (
+                          <p className="text-[10px] font-medium text-red-500 mt-1.5 flex items-center gap-1">
+                            <span>⚠️</span> Required: Tap the GPS button
+                          </p>
+                        )}
+                      </div>
+
+                      {/* Map Selection Button */}
+                      <div 
+                        onClick={() => setShowMap(true)}
+                        className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors flex flex-col items-center justify-center text-center"
+                      >
+                        {tempAddress.coordinates && tempAddress.coordinates.lat !== 0 ? (
+                          <div className="text-center">
+                            <div className="text-green-600 text-lg mb-1">✓ Location Selected</div>
+                            <p className="text-sm text-gray-600">
+                              Lat: {tempAddress.coordinates.lat.toFixed(6)}
+                              <br />
+                              Lng: {tempAddress.coordinates.lng.toFixed(6)}
+                            </p>
+                            {tempAddress.details && (
+                              <p className="text-xs text-gray-500 mt-2 truncate max-w-full">
+                                {tempAddress.details}
+                              </p>
+                            )}
+                            <p className="text-xs text-blue-600 mt-2">Click to change location</p>
+                          </div>
+                        ) : (
+                          <>
+                            <div className="text-gray-400 text-2xl mb-2">📍</div>
+                            <p className="text-gray-600 font-medium">Click to select location on map</p>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Select location by clicking on the map
+                            </p>
+                          </>
+                        )}
                       </div>
                     </div>
-                    {selectedAddress && typeof selectedAddress !== 'string' && (selectedAddress as ExtendedAddress).id === addr.id && (
-                      <span className="text-blue-500 font-bold">✓</span>
-                    )}
+
+                    {/* Modal Footer */}
+                    <div className="sticky bottom-0 bg-white border-t border-gray-200 px-6 py-4">
+                      <div className="flex gap-3">
+                        <button
+                          onClick={() => {
+                            setIsAdding(false);
+                            setTempAddress({
+                              label: "",
+                              phone: userPhone || "",
+                              details: "",
+                              coordinates: { lat: 0, lng: 0 },
+                              api_user_id: user?.id,
+                            });
+                          }}
+                          className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          onClick={handleSaveNewAddress}
+                          disabled={
+                            !tempAddress.label?.trim() ||
+                            !tempAddress.details?.trim() ||
+                            !tempAddress.coordinates ||
+                            tempAddress.coordinates.lat === 0
+                          }
+                          className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
+                        >
+                          Save Address
+                        </button>
+                      </div>
+                    </div>
                   </div>
-                ))}
-              </div>
-            )}
-
-            {/* Regular Users: Add New Address Button / Form */}
-            {user?.role !== "sale" && isAdding ? (
-              <div className="bg-white flex flex-col gap-4 p-4 border border-gray-200 rounded-xl">
-                {/* Name / Label */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Label *
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Home, Work, etc."
-                    value={tempAddress.label || ""}
-                    onChange={(e) => setTempAddress({ ...tempAddress, label: e.target.value })}
-                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  />
                 </div>
-
-                {/* Phone */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t.phone} *
-                  </label>
-                  <div className="w-full p-3 border rounded-lg bg-gray-50 text-gray-700">
-                    {userPhone ? `${userPhone} (from account)` : "No phone in profile"}
-                  </div>
-                </div>
-
-                {/* Address Details */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t.details || "Address Details"} *
-                  </label>
-                  <textarea
-                    placeholder="Street, building, floor, notes..."
-                    value={tempAddress.details || ""}
-                    onChange={(e) => setTempAddress({ ...tempAddress, details: e.target.value })}
-                    className="w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    rows={3}
-                  />
-                </div>
-
-                {/* Location Picker */}
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    {t.clickToSelectLocation} *
-                  </label>
-                  <input
-                    type="text"
-                    readOnly
-                    value={
-                      tempAddress.coordinates
-                        ? `Lat: ${tempAddress.coordinates.lat.toFixed(5)}, Lng: ${tempAddress.coordinates.lng.toFixed(5)}`
-                        : ""
-                    }
-                    onClick={() => setShowMap(true)}
-                    className="w-full p-3 border rounded-lg cursor-pointer bg-gray-50 hover:bg-gray-100"
-                    placeholder={t.clickToSelectLocation}
-                  />
-                  {!tempAddress.coordinates && (
-                    <p className="text-sm text-red-500 mt-1">{t.pleaseSelectALocationOnTheMap}</p>
-                  )}
-                </div>
-
-                {/* Action Buttons */}
-                <div className="flex gap-3 pt-2">
-                  <button
-                    onClick={handleSaveNewAddress}
-                    className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
-                    disabled={
-                      !tempAddress.details?.trim() ||
-                      !tempAddress.coordinates ||
-                      !tempAddress.label?.trim() ||
-                      !userPhone?.trim()
-                    }
-                  >
-                    {t.saveAddress}
-                  </button>
-                  <button
-                    onClick={() => {
-                      setIsAdding(false);
-                      setTempAddress({
-                        label: "",
-                        phone: userPhone || "",
-                        details: "",
-                        coordinates: { lat: 0, lng: 0 },
-                        api_user_id: user?.id,
-                      });
-                    }}
-                    className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
-                  >
-                    {t.cancel}
-                  </button>
-                </div>
-              </div>
-            ) : user?.role !== "sale" ? (
-              <button
-                onClick={() => setIsAdding(true)}
-                className="mt-2 w-full py-3 bg-gray-100 border border-dashed border-gray-300 rounded-xl hover:bg-gray-50 font-medium flex items-center justify-center gap-2"
-              >
-                <span className="text-xl">+</span>
-                {t.addNewAddress}
-              </button>
-            ) : null}
-          </section>
+              )}
+            </section>
+          )}
 
           {/* ==================== FIXED: Payment Method Section ==================== */}
           <section className="flex flex-col gap-3">
