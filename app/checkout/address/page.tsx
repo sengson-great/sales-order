@@ -63,7 +63,7 @@ export default function ShippingAddressPage() {
       return;
     }
 
-    const shortAddress = `${tempAddress.details}, ${tempAddress.coordinates.lat.toFixed(5)}, ${tempAddress.coordinates.lng.toFixed(5)}`;
+    const shortAddress = `${tempAddress.details}, ${Number(tempAddress.coordinates.lat.toFixed(5))}, ${Number(tempAddress.coordinates.lng.toFixed(5))}`;
 
     const updatedAddress = {
       ...tempAddress,

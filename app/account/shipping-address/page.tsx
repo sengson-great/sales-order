@@ -546,7 +546,7 @@ export default function ShippingAddressPage() {
                     {/* Don't show coordinates for salesOnField */}
                     {!isSalesOnField && addr.coordinates && (
                       <p className="text-gray-500 text-xs mt-1">
-                        📍 Lat: {addr.coordinates.lat.toFixed(5)}, Lng: {addr.coordinates.lng.toFixed(5)}
+                        📍 Lat: {Number(addr.coordinates.lat.toFixed(5))}, Lng: {Number(addr.coordinates.lng.toFixed(5))}
                       </p>
                     )}
                   </div>
