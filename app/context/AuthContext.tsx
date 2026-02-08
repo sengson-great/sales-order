@@ -25,6 +25,51 @@ interface User {
   };
 }
 
+export type Contact = {
+  id?: number;
+  business_id?: number;
+  type: "customer" | "supplier" | "both";
+  supplier_business_name?: string;
+  name: string;
+  prefix?: string;
+  first_name?: string;
+  middle_name?: string;
+  last_name?: string;
+  email?: string;
+  contact_id?: string;
+  tax_number?: string;
+  city?: string;
+  state?: string;
+  country?: string;
+  address_line_1?: string;
+  address_line_2?: string;
+  zip_code?: string;
+  mobile: string;
+  landline?: string;
+  alternate_number?: string;
+  latitude?: number;
+  longitude?: number;
+  customer_group_id?: number;
+  contact_status?: "active" | "inactive";
+  created_by?: number;
+  is_default?: boolean;
+  shipping_address?: string;
+  position?: string;
+  dob?: string;
+  custom_field1?: string;
+  custom_field2?: string;
+  custom_field3?: string;
+  custom_field4?: string;
+  custom_field5?: string;
+  credit_limit?: number;
+  created_at?: string;
+  updated_at?: string;
+  // Additional fields for UI
+  details?: string; // For address details in UI
+  coordinates?: { lat: number; lng: number };
+  place_pic?: string;
+};
+
 interface AuthContextType {
   user: User | null;
   setUser: (user: User | null) => void;
@@ -33,6 +78,13 @@ interface AuthContextType {
   logout: () => Promise<void>;
   refreshUser: () => Promise<void>;
   updateUser: (updates: Partial<User>) => void;
+  error: string | null;
+  setError: (error: string | null) => void;
+  contacts: Contact[];
+  setContacts: (contacts: Contact[]) => void;
+  newContact: Contact;
+  setNewContact: (contact: Contact) => void;
+  fetchContacts: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -43,6 +95,22 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const router = useRouter();
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [contacts, setContacts] = useState<Contact[]>([]);
+
+  const [newContact, setNewContact] = useState<Contact>({
+    name: "",
+    mobile: "",
+    type: "customer",
+    email: "",
+    address_line_1: "",
+    city: "",
+    state: "",
+    country: "",
+    zip_code: "",
+    details: "", // For UI only
+    coordinates: undefined,
+    place_pic: "",
+  });
 
   // 🔹 Unified function to extract user data
   const extractUserFromResponse = (responseData: any): User | null => {
@@ -147,6 +215,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     }
   };
 
+  async function fetchContacts() {
+    setLoading(true);
+    try {
+      const res = await api.get<{ status: string; data: Contact[] }>("/contacts/all");
+      console.log("Fetched contacts:", res.data.data);
+      setContacts(res.data.data);
+    } catch (err) {
+      console.error(err);
+      //toast.error("Failed to load contacts");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+
   
 
   // 🔹 Update user data
@@ -235,7 +318,14 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       login, 
       logout, 
       refreshUser, 
-      updateUser 
+      updateUser,
+      contacts,
+      setContacts,
+      fetchContacts,
+      newContact,
+      setNewContact,
+      error,
+      setError
     }}>
       {children}
     </AuthContext.Provider>

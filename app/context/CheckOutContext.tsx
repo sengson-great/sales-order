@@ -626,14 +626,18 @@ const sendInvoiceToTelegram = async (orderId: number, imageDataUrl: string) => {
 };
   
 
-// --- PLACE ORDER ---
+// --- PLACE ORDER (MODIFIED WITH CONTACTS SUPPORT) ---
 const placeOrder = async () => {
   // Declare these variables at the top
   let addressToSend: Address | null = null;
   let customerName = "";
   let customerPhone = "";
+  let customerEmail = "";
   let payload: any = null;
   
+  // ============================================
+  // 1. ADDRESS SELECTION LOGIC (UNCHANGED)
+  // ============================================
   if (selectedAddress === "current") {
     if (!currentAddress.coordinates) {
       toast.error("Current address coordinates not set!");
@@ -649,6 +653,7 @@ const placeOrder = async () => {
       
       customerName = customerInfo.name;
       customerPhone = customerInfo.phone;
+      customerEmail = customerInfo.email || "";
       
       const short_address = await getShortAddress(currentAddress.coordinates.lat, currentAddress.coordinates.lng);
       addressToSend = { 
@@ -686,9 +691,26 @@ const placeOrder = async () => {
     }
     
     if (isSalesMode) {
-      if (addressToSend.label && addressToSend.phone) {
+      // ============================================
+      // NEW: CHECK IF SELECTED ADDRESS IS FROM CONTACTS
+      // ============================================
+      if (addressToSend.id) {
+        // This is a contact from the contacts table
+        customerName = addressToSend.label || "";
+        customerPhone = addressToSend.phone || "";
+        
+        // Use the contact's address as delivery address
+        addressToSend = {
+          ...addressToSend,
+          label: customerName,
+          phone: customerPhone,
+          coordinates: addressToSend.coordinates
+        };
+      } else if (addressToSend.label && addressToSend.phone) {
+        // Old address-based customer info
         customerName = addressToSend.label;
         customerPhone = addressToSend.phone;
+        customerEmail = "";
       } else {
         if (!customerInfo.name || !customerInfo.phone) {
           toast.error("Please enter customer name and phone number");
@@ -696,6 +718,7 @@ const placeOrder = async () => {
         }
         customerName = customerInfo.name;
         customerPhone = customerInfo.phone;
+        customerEmail = customerInfo.email || "";
         
         addressToSend.phone = customerPhone;
         addressToSend.label = customerName;
@@ -725,25 +748,42 @@ const placeOrder = async () => {
     return;
   }
 
-  // Determine correct IDs
+  // ============================================
+  // 2. DETERMINE USER IDS (UPDATED FOR CONTACTS)
+  // ============================================
   let apiUserId: number;
   let salesUserId: number | undefined = undefined;
   let isSalesOrder = false;
+  let contactId: number | undefined = undefined;
 
   if (isSalesMode && salesUser) {
     isSalesOrder = true;
     salesUserId = salesUser.id;
-    apiUserId = 20;
+    apiUserId = 20; // Fixed API user ID for sales
+    
+    // ============================================
+    // NEW: SET CONTACT ID IF FROM CONTACTS TABLE
+    // ============================================
+    if (selectedAddress !== "current" && selectedAddress && typeof selectedAddress !== 'string') {
+      const contactAddress = selectedAddress;
+      if (contactAddress.id) {
+        contactId = contactAddress.id;
+        console.log('Using contact ID for order:', contactId);
+      }
+    }
   } else if (regularUser) {
     isSalesOrder = false;
     apiUserId = regularUser.id;
     salesUserId = undefined;
+    contactId = undefined;
   } else {
     toast.error("You must be logged in to place an order!");
     return;
   }
 
-  // Create the payload variable
+  // ============================================
+  // 3. CREATE PAYLOAD (UPDATED FOR CONTACTS)
+  // ============================================
   payload = {
     api_user_id: apiUserId,
     saved_address_id: selectedAddress !== "current" ? addressToSend.id : undefined,
@@ -767,11 +807,22 @@ const placeOrder = async () => {
       return;
     }
     
-    payload.customer_info = {
-      name: customerName,
-      phone: customerPhone,
-      email: customerInfo.email || undefined,
-    };
+    // ============================================
+    // NEW: SEND CONTACT ID INSTEAD OF CUSTOMER INFO
+    // ============================================
+    if (contactId) {
+      // Send contact_id instead of customer_info
+      payload.contact_id = contactId;
+      console.log('Order payload includes contact_id:', contactId);
+    } else {
+      // Fallback: send customer_info for new customers
+      payload.customer_info = {
+        name: customerName,
+        phone: customerPhone,
+        email: customerEmail || undefined,
+      };
+      console.log('Order payload includes customer_info (new customer)');
+    }
     
     payload.sales_user_id = salesUserId;
     payload.sales_person_name = salespersonName;
@@ -835,7 +886,13 @@ const placeOrder = async () => {
       toast.success("Order placed successfully!");
       
       if (isSalesOrder) {
-        toast.info(`Customer: ${customerName}, Phone: ${customerPhone}`);
+        // Show contact info if available
+        if (contactId) {
+          toast.info(`Customer from contacts: ${customerName}, Phone: ${customerPhone}`);
+        } else {
+          toast.info(`New customer: ${customerName}, Phone: ${customerPhone}`);
+        }
+        
         if (res.data.salesperson_info?.name) {
           toast.info(`Salesperson: ${res.data.salesperson_info.name}`);
         }
@@ -852,6 +909,8 @@ const placeOrder = async () => {
     }
   } catch (err: any) {
     console.error("❌ Order error:", err);
+    console.error("❌ Full error response:", err.response?.data);
+    console.error("❌ Payload sent:", payload);
     
     if (err.response?.status === 401) {
       if (err.response?.data?.message === 'Unauthenticated.') {
