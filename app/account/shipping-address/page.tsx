@@ -63,6 +63,11 @@ export default function ShippingAddressPage() {
     return salesUser?.role === 'salesOnField';
   }, [salesUser]);
 
+  // Determine if user is salesOnline
+  const isSalesOnline = useMemo(() => {
+    return salesUser?.role === 'salesOnline';
+  }, [salesUser]);
+
   async function fetchAddress() {
     setLoading(true);
     try {
@@ -371,7 +376,7 @@ export default function ShippingAddressPage() {
   const resetForm = () => {
     setNewAddress({
       label: "",
-      phone: (salesUser?.role === "sale" || isSalesOnField) ? "" : user?.phone || user?.mobile || "",
+      phone: (isSalesOnline || isSalesOnField) ? "" : user?.phone || user?.mobile || "",
       details: "",
       coordinates: undefined,
       api_user_id: user?.id || salesUser?.id || undefined,
@@ -790,7 +795,7 @@ export default function ShippingAddressPage() {
               </div>
 
               {/* Image Upload Area */}
-              <div className="border-2 border-dashed border-gray-300 rounded-xl h-40 relative flex items-center justify-center overflow-hidden">
+         {  !isSalesOnline &&  <div className="border-2 border-dashed border-gray-300 rounded-xl h-40 relative flex items-center justify-center overflow-hidden">
                 {imagePreview ? (
                   <>
                     <img src={imagePreview} className="w-full h-full object-cover" />
@@ -811,10 +816,10 @@ export default function ShippingAddressPage() {
                     />
                   </label>
                 )}
-              </div>
+              </div>}
 
               {/* Location Selection for Regular Users */}
-              {!isSalesOnField && (
+              {user?.role !== "sale" && (
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-2">
                     Location on Map *
@@ -900,27 +905,34 @@ export default function ShippingAddressPage() {
                   Cancel
                 </button>
                 <button
-                  onClick={handleSaveAddress}
-                  disabled={
-                    !newAddress.label || 
-                    !newAddress.details || 
-                    (isSalesOnField && (!newAddress.phone || !newAddress.coordinates)) ||
-                    (salesUser?.role === "sale" && !newAddress.phone) ||
-                    (!isSalesOnField && !newAddress.coordinates) ||
-                    (!isSalesOnField && user?.role !== "sale" && !newAddress.phone && !getUserPhone()) ||
-                    ((isSalesOnField || salesUser?.role === "sale") && 
-                     !!newAddress.phone?.trim() && 
-                     checkPhoneExists(newAddress.phone.trim(), editingId))
-                  }
-                  className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
-                >
-                  {isEditing 
-                    ? (isSalesOnField ? "Update Field Customer" : 
-                       salesUser?.role === "sale" ? "Update Customer" : "Save Changes")
-                    : (isSalesOnField ? "Save Field Customer" : 
-                       salesUser?.role === "sale" ? "Save Customer" : "Save Address")
-                  }
-                </button>
+  onClick={handleSaveAddress}
+  disabled={
+    !newAddress.label || 
+    !newAddress.details || 
+    // For salesOnField: require phone AND coordinates (GPS required)
+    (isSalesOnField && (!newAddress.phone || !newAddress.coordinates)) ||
+    // For saleOnline: require phone only (no coordinates)
+    (isSalesOnline && !newAddress.phone) ||
+    // For regular sale: require phone only (no coordinates)
+    (salesUser?.role === "sale" && !newAddress.phone) ||
+    // For regular users (not sales): require coordinates
+    (!isSalesOnField && !isSalesOnline && salesUser?.role !== "sale" && !newAddress.coordinates) ||
+    // Phone validation for regular users (not sales)
+    (!isSalesOnField && !isSalesOnline && salesUser?.role !== "sale" && !newAddress.phone && !getUserPhone()) ||
+    // Duplicate phone check for all sales users
+    ((isSalesOnField || isSalesOnline || salesUser?.role === "sale") && 
+     !!newAddress.phone?.trim() && 
+     checkPhoneExists(newAddress.phone.trim(), editingId))
+  }
+  className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
+>
+  {isEditing 
+    ? (isSalesOnField ? "Update Field Customer" : 
+       (isSalesOnline || salesUser?.role === "sale") ? "Update Customer" : "Save Changes")
+    : (isSalesOnField ? "Save Field Customer" : 
+       (isSalesOnline || salesUser?.role === "sale") ? "Save Customer" : "Save Address")
+  }
+</button>
               </div>
             </div>
           </div>
