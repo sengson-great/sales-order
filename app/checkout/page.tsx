@@ -25,12 +25,13 @@ type APIAddress = {
 // Extended type that includes both context and API properties
 type ExtendedAddress = ContextAddress & {
   api_user_id?: number;
+  place_pic?: string
 };
 
 // Payment Method Interface
 type PaymentMethodType = {
   id: string;
-  name: string;
+  name: string | any;
   image: string;
   type: 'default' | 'custom';
 };
@@ -78,61 +79,91 @@ const CombinedCheckoutPage = () => {
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(ITEMS_PER_PAGE);
+  
+  const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   // State to control when to show search results
   const [showSearchResults, setShowSearchResults] = useState(false);
 
   // Payment methods state - FIXED: Initialize with proper structure
-  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodType[]>([
-    { id: 'qr', name: t.QR || 'QR', image: "/qr.jpg", type: 'default' },
-    { id: 'cash', name: t.cash || 'Cash', image: "/cash.jpg", type: 'default' },
-  ]);
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodType[]>([]);
+
+
+  const [showAllPaymentMethods, setShowAllPaymentMethods] = useState(false);
+
+// Calculate how many methods to show initially
+const maxInitialPaymentMethods = 3;
+const defaultPaymentMethodsCount = Math.min(maxInitialPaymentMethods, paymentMethods.length);
+const paymentMethodsToShow = showAllPaymentMethods ? paymentMethods : paymentMethods.slice(0, defaultPaymentMethodsCount);
 
   const IMAGE_URL = process.env.NEXT_PUBLIC_IMAGE_URL!;
   const currentSelectedAddress = selectedAddress === "current" ? currentAddress : selectedAddress;
 
-  // FIXED VERSION of the custom payment fetch:
-  useEffect(() => {
-    const fetchCustomPaymentMethods = async () => {
-      try {
-        setLoading(true);
-        const response = await api.get('/business/1/custom-payments');
-        
-        if (response.data.success && response.data.custom_payments) {
-          const customPayments = response.data.custom_payments;
-          const customMethods: any[] = [];
-          
-          // SAFER: Use Object.entries instead of keyof
-          Object.entries(customPayments).forEach(([key, value]) => {
-            if (key.startsWith('custom_pay_') && value && value !== null) {
-              customMethods.push({
-                id: key,
-                name: value,
-                image: `/${key}.jpg` || '/payment-default.jpg',
-                type: 'custom' as const
-              });
-            }
-          });
-          
-          setPaymentMethods(prev => [...prev, ...customMethods]);
-        }
-      } catch (error) {
-        console.error('Failed to fetch payment methods:', error);
-        toast.error('Failed to load custom payment methods');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    if (user) {
-      fetchCustomPaymentMethods();
-    }
-  }, [user, setLoading]);
-
-  // Check if user is actively searching or has search results
+  // Check if user is actively searching (typing in search box)
   const isSearching = useMemo(() => {
-    return searchQuery.trim().length > 0 || showSearchResults;
-  }, [searchQuery, showSearchResults]);
+    return searchQuery.trim().length > 0;
+  }, [searchQuery]);
+
+  // Check if customer is selected
+  const isCustomerSelected = useMemo(() => {
+    return user?.role === "sale" && selectedAddress && typeof selectedAddress !== 'string';
+  }, [user?.role, selectedAddress]);
+
+  // Show main content when: NOT searching OR customer is selected
+  const shouldShowMainContent = useMemo(() => {
+    return !isSearching || isCustomerSelected;
+  }, [isSearching, isCustomerSelected]);
+
+  // Determine if search query starts with a number (phone) or not (name)
+  const isLikelyPhoneNumber = useMemo(() => {
+    if (!searchQuery.trim()) return false;
+    const firstChar = searchQuery.trim().charAt(0);
+    return /^\d/.test(firstChar);
+  }, [searchQuery]);
+
+useEffect(() => {
+  const fetchAllPaymentMethods = async () => {
+    try {
+      setLoading(true);
+      
+      // Start with default methods
+      const allMethods: PaymentMethodType[] = [
+        { id: 'qr', name: t.QR || 'QR', image: "/qr.jpg", type: 'default' },
+        { id: 'cash', name: t.cash || 'Cash', image: "/cash.jpg", type: 'default' },
+      ];
+      
+      // Fetch custom methods
+      const response = await api.get('/business/1/custom-payments');
+      
+      if (response.data.success && response.data.custom_payments) {
+        const customPayments = response.data.custom_payments;
+        
+        Object.entries(customPayments).forEach(([key, value]) => {
+          if (key.startsWith('custom_pay_') && value && value !== null) {
+            allMethods.push({
+              id: key,
+              name: value,
+              image: `/${key}.jpg` || '/payment-default.jpg',
+              type: 'custom' as const
+            });
+          }
+        });
+      }
+      
+      setPaymentMethods(allMethods);
+    } catch (error) {
+      console.error('Failed to fetch payment methods:', error);
+      toast.error('Failed to load custom payment methods');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (user) {
+    fetchAllPaymentMethods();
+  }
+}, [user, setLoading, t.QR, t.cash]); // Add t.QR and t.cash as dependencies
 
   // Filter saved addresses based on search query
   const filteredAddresses = useMemo(() => {
@@ -149,13 +180,6 @@ const CombinedCheckoutPage = () => {
       return labelMatch || phoneMatch || detailsMatch;
     });
   }, [savedAddresses, searchQuery]);
-
-  // Determine if search query starts with a number (phone) or not (name)
-  const isLikelyPhoneNumber = useMemo(() => {
-    if (!searchQuery.trim()) return false;
-    const firstChar = searchQuery.trim().charAt(0);
-    return /^\d/.test(firstChar);
-  }, [searchQuery]);
 
   // Calculate pagination data
   const paginatedAddresses = useMemo(() => {
@@ -199,24 +223,68 @@ const CombinedCheckoutPage = () => {
     }
   }, [user]);
 
-  // Update form fields in real-time as user types in search
-  useEffect(() => {
-    if (searchQuery.trim() && user?.role === "sale") {
+// AUTO-POPULATE FORM FIELDS: Open form automatically when customer is not found
+useEffect(() => {
+  if (searchQuery.trim() && user?.role === "sale") {
+    // First, check if the search matches any existing customer
+    const existingCustomer = savedAddresses.find(addr => 
+      addr.label?.toLowerCase().includes(searchQuery.trim().toLowerCase()) ||
+      addr.phone?.includes(searchQuery.trim())
+    );
+    
+    if (existingCustomer) {
+      // If customer exists, select it and DON'T open form
+      //setSelectedAddress(existingCustomer);
+      setShowSearchResults(true);
+      setIsAdding(false);
+    } else if (!isAdding) {
+      // If customer doesn't exist AND we're not already in the form
+      // Open form immediately with the search query
+      setIsAdding(true);
+      setShowSearchResults(false);
+      
+      // Update the form fields based on current search
       if (isLikelyPhoneNumber) {
         setTempAddress(prev => ({
           ...prev,
           phone: searchQuery.trim(),
-          label: prev.label || ""
+          label: prev.label || "", // Keep existing name if any
+          details: prev.details || ""
         }));
       } else {
         setTempAddress(prev => ({
           ...prev,
           label: searchQuery.trim(),
-          phone: prev.phone || ""
+          phone: prev.phone || "", // Keep existing phone if any
+          details: prev.details || ""
         }));
       }
     }
-  }, [searchQuery, isLikelyPhoneNumber, user?.role]);
+  } else if (!searchQuery.trim() && isAdding) {
+    // If search is cleared while form is open, close the form
+    setIsAdding(false);
+  }
+}, [searchQuery, isLikelyPhoneNumber, user?.role, savedAddresses, setSelectedAddress, isAdding]);
+
+// Also update the form fields in real-time while form is open
+useEffect(() => {
+  if (isAdding && searchQuery.trim() && user?.role === "sale") {
+    // Update form fields in real-time as user continues typing
+    if (isLikelyPhoneNumber) {
+      setTempAddress(prev => ({
+        ...prev,
+        phone: searchQuery.trim(),
+        // Don't clear label field - user might be editing it separately
+      }));
+    } else {
+      setTempAddress(prev => ({
+        ...prev,
+        label: searchQuery.trim(),
+        // Don't clear phone field - user might be editing it separately
+      }));
+    }
+  }
+}, [searchQuery, isLikelyPhoneNumber, isAdding, user?.role]);
 
   // Clear form fields when form disappears
   useEffect(() => {
@@ -246,22 +314,97 @@ const CombinedCheckoutPage = () => {
   const userPhone = getPhoneFromUser(user);
 
   const handleDetectCurrentLocation = async () => {
+    if (!navigator.geolocation) {
+      toast.error("Geolocation is not supported by your browser");
+      return;
+    }
+  
     setIsDetectingLocation(true);
+    
     try {
-      await detectCurrentLocation();
+      const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0
+        });
+      });
+  
+      const { latitude, longitude } = position.coords;
+      const coordinates = { lat: latitude, lng: longitude };
+      
+      // Update tempAddress directly
+      setTempAddress(prev => ({
+        ...prev,
+        coordinates: coordinates
+      }));
+      
+      console.log('Coordinates detected:', coordinates);
+      
+      // Also update context if needed
+      setCurrentAddress({
+        coordinates: coordinates,
+        label: "Current Location",
+        details: "Your current location"
+      });
+      
       setSelectedAddress("current");
       toast.success("Current location detected!");
-    } catch (err: any) {
-      toast.error(err.message || "Failed to detect location");
+    } catch (error: any) {
+      console.error("Geolocation error:", error);
+      let errorMessage = "Failed to detect location";
+      
+      switch(error.code) {
+        case error.PERMISSION_DENIED:
+          errorMessage = "Location permission denied. Please enable location services.";
+          break;
+        case error.POSITION_UNAVAILABLE:
+          errorMessage = "Location information is unavailable.";
+          break;
+        case error.TIMEOUT:
+          errorMessage = "Location request timed out.";
+          break;
+      }
+      
+      toast.error(errorMessage);
     } finally {
       setIsDetectingLocation(false);
     }
   };
 
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      // Check file type
+      if (!file.type.startsWith('image/')) {
+        toast.error("Please upload an image file");
+        return;
+      }
+  
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        toast.error("Image size should be less than 5MB");
+        return;
+      }
+  
+      setImageFile(file);
+      
+      // Create preview
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result as string);
+      };
+      reader.readAsDataURL(file);
+      
+      console.log("Image file selected:", file.name, file.size, file.type);
+    }
+  };
+
   const handleSelectSavedAddress = (addr: ExtendedAddress) => {
     setSelectedAddress(addr);
-    setIsAdding(false);
     setShowSearchResults(true);
+    setIsAdding(false); // Close the form since we selected an existing customer
+    // Don't clear search query - keep it visible as feedback
   };
 
   const handleMapClick = (e: google.maps.MapMouseEvent) => {
@@ -282,121 +425,158 @@ const CombinedCheckoutPage = () => {
     }
   };
 
-  // Handle search input change
-  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    setSearchQuery(value);
+// Handle search input change
+const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const value = e.target.value;
+  setSearchQuery(value);
 
-    if (value.trim()) {
-      setShowSearchResults(true);
-      setIsAdding(true);
-    } else {
-      setShowSearchResults(false);
-      setIsAdding(false);
-    }
-  };
+  if (value.trim()) {
+    setShowSearchResults(true);
+  } else {
+    setShowSearchResults(false);
+    // Only close form if search is completely cleared
+    setIsAdding(false);
+    setSelectedAddress('current');
+  }
+};
 
   // Save new address
-  const handleSaveNewAddress = async () => {
-    if (!tempAddress.label?.trim()) {
-      toast.error(
-        user?.role === "sale"
-          ? "Please enter customer name"
-          : "Please enter a name/label for the address"
-      );
+const handleSaveNewAddress = async () => {
+  if (!tempAddress.label?.trim()) {
+    toast.error(
+      user?.role === "sale"
+        ? "Please enter customer name"
+        : "Please enter a name/label for the address"
+    );
+    return;
+  }
+
+  if (user?.role === "sale") {
+    if (!tempAddress.phone?.trim()) {
+      toast.error("Please enter customer phone number");
       return;
     }
+    
+    // Check for duplicate phone number
+    const phoneExists = savedAddresses.some(addr => 
+      addr.phone?.trim() === tempAddress.phone?.trim() && 
+      addr.id !== tempAddress.id // Skip current if editing
+    );
+    
+    if (phoneExists) {
+      toast.error("A customer with this phone number already exists");
+      return;
+    }
+  } else {
+    if (!userPhone?.trim()) {
+      toast.error("Please add your phone number in account settings");
+      return;
+    }
+  }
 
-    if (user?.role === "sale") {
-      if (!tempAddress.phone?.trim()) {
-        toast.error("Please enter customer phone number");
-        return;
+  if (!tempAddress.details?.trim()) {
+    toast.error("Please enter address details");
+    return;
+  }
+
+  if (!tempAddress.coordinates || tempAddress.coordinates.lat === 0) {
+    toast.error("Please select a location on the map");
+    return;
+  }
+
+  const finalPhone = user?.role === "sale"
+    ? (tempAddress.phone || "").trim()
+    : userPhone?.trim();
+
+  if (!finalPhone) {
+    toast.error(
+      user?.role === "sale"
+        ? "Please enter customer's phone number"
+        : "Please add your phone number in account settings"
+    );
+    return;
+  }
+
+  if (!tempAddress.api_user_id) {
+    toast.error("User not authenticated");
+    return;
+  }
+
+  setLoading(true);
+
+  try {
+    // Create FormData to handle file upload
+    const formData = new FormData();
+    formData.append('label', (tempAddress.label || "").trim());
+    formData.append('phone', finalPhone);
+    formData.append('details', (tempAddress.details || "").trim());
+    formData.append('api_user_id', String(tempAddress.api_user_id));
+    
+    if (tempAddress.coordinates) {
+      formData.append('coordinates[lat]', String(tempAddress.coordinates.lat));
+      formData.append('coordinates[lng]', String(tempAddress.coordinates.lng));
+    }
+    
+    // Append image file if exists
+    if (imageFile) {
+      formData.append('place_pic', imageFile);
+    }
+
+    console.log("Saving address with image:", imageFile ? "Yes" : "No");
+
+    const res = await api.post("/addresses", formData, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    
+    const apiResponse = res.data?.data;
+
+    const newAddress: ExtendedAddress = {
+      ...apiResponse,
+      id: apiResponse.id,
+      label: apiResponse.label,
+      phone: apiResponse.phone,
+      details: apiResponse.details,
+      coordinates: apiResponse.coordinates,
+      api_user_id: apiResponse.api_user_id,
+      place_pic: apiResponse.place_pic
+    };
+
+    setSavedAddresses((prev) => [...prev, newAddress]);
+    setSelectedAddress(newAddress);
+    setIsAdding(false);
+    setSearchQuery(newAddress.label || "");
+    setShowSearchResults(true);
+    setCurrentPage(1);
+
+    // Reset form fields AND image
+    setTempAddress({
+      label: "",
+      phone: user?.role === "sale" ? "" : userPhone || "",
+      details: "",
+      coordinates: { lat: 0, lng: 0 },
+      api_user_id: user?.id,
+    });
+    setImageFile(null);
+    setImagePreview(null);
+
+    toast.success("Address saved successfully");
+  } catch (err: any) {
+    console.error("Save address error:", err);
+    if (err.response?.status === 422) {
+      // Handle validation errors from backend
+      const errors = err.response.data.errors;
+      if (errors?.phone) {
+        toast.error("Phone number already exists.");
+      } else {
+        toast.error("Validation failed. Please check your input.");
       }
     } else {
-      if (!userPhone?.trim()) {
-        toast.error("Please add your phone number in account settings");
-        return;
-      }
-    }
-
-    if (!tempAddress.details?.trim()) {
-      toast.error("Please enter address details");
-      return;
-    }
-
-    if (!tempAddress.coordinates) {
-      toast.error("Please select a location on the map");
-      return;
-    }
-
-    const finalPhone = user?.role === "sale"
-      ? (tempAddress.phone || "").trim()
-      : userPhone?.trim();
-
-    if (!finalPhone) {
-      toast.error(
-        user?.role === "sale"
-          ? "Please enter customer's phone number"
-          : "Please add your phone number in account settings"
-      );
-      return;
-    }
-
-    if (!tempAddress.api_user_id) {
-      toast.error("User not authenticated");
-      return;
-    }
-
-    setLoading(true);
-
-    try {
-      const addressData: APIAddress = {
-        label: (tempAddress.label || "").trim(),
-        phone: finalPhone,
-        details: (tempAddress.details || "").trim(),
-        coordinates: tempAddress.coordinates,
-        api_user_id: tempAddress.api_user_id,
-      };
-
-      console.log("Saving address:", addressData);
-
-      const res = await api.post("/addresses", addressData);
-      const apiResponse = res.data?.data;
-
-      const newAddress: ExtendedAddress = {
-        ...apiResponse,
-        id: apiResponse.id,
-        label: apiResponse.label,
-        phone: apiResponse.phone,
-        details: apiResponse.details,
-        coordinates: apiResponse.coordinates,
-        api_user_id: apiResponse.api_user_id,
-      };
-
-      setSavedAddresses((prev) => [...prev, newAddress]);
-      setSelectedAddress(newAddress);
-      setIsAdding(false);
-      setSearchQuery(newAddress.label || "");
-      setShowSearchResults(true);
-      setCurrentPage(1);
-
-      // Reset form fields
-      setTempAddress({
-        label: "",
-        phone: user?.role === "sale" ? "" : userPhone || "",
-        details: "",
-        coordinates: { lat: 0, lng: 0 },
-        api_user_id: user?.id,
-      });
-
-      toast.success("Address saved successfully");
-    } catch (err: any) {
-      console.error("Save address error:", err);
       toast.error(err.response?.data?.message || "Failed to save address");
-    } finally {
-      setLoading(false);
     }
-  };
+  } finally {
+    setLoading(false);
+  }
+};
 
   // FIXED: Handle payment method selection
   const handlePaymentMethodSelect = (methodName: string) => {
@@ -486,7 +666,7 @@ const CombinedCheckoutPage = () => {
       {/* Sales Mode: Search and Customer Management */}
       {user?.role === "sale" && (
         <div className="space-y-3">
-          {/* Search Bar */}
+          {/* Search Bar - Always visible */}
           <div className="relative">
             <input
               type="text"
@@ -512,8 +692,8 @@ const CombinedCheckoutPage = () => {
             )}
           </div>
 
-          {/* Selected Customer Display */}
-          {selectedAddress && typeof selectedAddress !== 'string' && (
+          {/* Selected Customer Display - Always visible when customer is selected */}
+          {isCustomerSelected && (
             <div className="p-4 border border-green-300 bg-green-50 rounded-xl">
               <div className="flex justify-between items-start">
                 <div>
@@ -528,6 +708,8 @@ const CombinedCheckoutPage = () => {
                   onClick={() => {
                     setSelectedAddress('current');
                     setSearchQuery("");
+                    setShowSearchResults(false);
+                    setIsAdding(false);
                   }}
                   className="text-gray-400 hover:text-gray-600"
                 >
@@ -539,19 +721,14 @@ const CombinedCheckoutPage = () => {
             </div>
           )}
 
-          {/* Show search results when searching OR when a customer is selected */}
-          {(showSearchResults || (selectedAddress && typeof selectedAddress !== 'string')) && searchQuery.trim() && (
+          {/* Show search results ONLY when actively searching (typing) */}
+          {isSearching && showSearchResults && !isCustomerSelected && (
             <div className="space-y-3">
               {/* Search Results Header */}
               <div className="text-sm text-gray-500">
                 {filteredAddresses.length > 0 ? (
                   <div className="flex justify-between items-center">
                     <span>Found {filteredAddresses.length} customer(s)</span>
-                    {selectedAddress && typeof selectedAddress !== 'string' && (
-                      <span className="text-blue-600 font-medium">
-                        ✓ Selected
-                      </span>
-                    )}
                   </div>
                 ) : (
                   <div className="flex justify-between items-center">
@@ -566,8 +743,8 @@ const CombinedCheckoutPage = () => {
                 )}
               </div>
 
-              {/* Search Results - Customer List */}
-              {paginatedAddresses.map((addr) => (
+              {/* Search Results - Customer List (only when not adding new) */}
+              {!isAdding && paginatedAddresses.map((addr) => (
                 <div
                   key={addr.id}
                   onClick={() => handleSelectSavedAddress(addr)}
@@ -599,7 +776,7 @@ const CombinedCheckoutPage = () => {
               ))}
 
               {/* Pagination Controls for Search Results */}
-              {totalPages > 1 && (
+              {!isAdding && totalPages > 1 && (
                 <div className="flex flex-col sm:flex-row justify-between items-center gap-4 mt-4 p-4 border border-gray-200 rounded-xl">
                   <div className="flex items-center gap-2">
                     <button
@@ -639,29 +816,25 @@ const CombinedCheckoutPage = () => {
             </div>
           )}
 
-          {/* CUSTOMER FORM MODAL - Similar to ShippingAddressPage */}
-          {(isAdding || (searchQuery.trim() && filteredAddresses.length === 0)) && (
+          {/* CUSTOMER FORM MODAL - Shows when adding new customer */}
+          {isAdding && (
             <div className="fixed inset-0 bg-black/50 flex justify-center items-center z-50 p-4">
               <div className="bg-white rounded-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
                 {/* Modal Header */}
                 <div className="sticky top-0 bg-white border-b border-gray-200 px-6 py-4 flex justify-between items-center">
                   <h3 className="text-lg font-semibold text-gray-800">
-                    {selectedAddress && typeof selectedAddress !== 'string'
-                      ? "Edit Customer"
-                      : "Add New Customer"}
+                    Add New Customer
                   </h3>
                   <button
                     onClick={() => {
                       setIsAdding(false);
-                      setSearchQuery("");
-                      setShowSearchResults(false);
-                      setTempAddress({
-                        label: "",
-                        phone: user?.role === "sale" ? "" : userPhone || "",
-                        details: "",
-                        coordinates: { lat: 0, lng: 0 },
-                        api_user_id: user?.id,
-                      });
+                      // Clear search if we cancel adding new customer
+                      if (searchQuery.trim() && !savedAddresses.some(addr => 
+                        addr.label?.toLowerCase() === searchQuery.trim().toLowerCase() ||
+                        addr.phone === searchQuery.trim()
+                      )) {
+                        setSearchQuery("");
+                      }
                     }}
                     className="text-gray-400 hover:text-gray-600 text-2xl p-1"
                   >
@@ -671,13 +844,10 @@ const CombinedCheckoutPage = () => {
 
                 {/* Modal Body */}
                 <div className="p-6 space-y-4">
-                  {/* Name Field */}
+                  {/* Name Field - Auto-populated from search */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Customer Name *
-                      {isLikelyPhoneNumber && searchQuery.trim() && (
-                        <span className="text-xs text-gray-500 ml-2">(Detected as phone number, please enter name)</span>
-                      )}
                     </label>
                     <input
                       type="text"
@@ -688,21 +858,41 @@ const CombinedCheckoutPage = () => {
                     />
                   </div>
 
-                  {/* Phone Field */}
+                  {/* Phone Field - Auto-populated from search */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-2">
                       Phone *
-                      {!isLikelyPhoneNumber && searchQuery.trim() && (
-                        <span className="text-xs text-gray-500 ml-2">(Detected as name, please enter phone number)</span>
+                      {tempAddress.phone?.trim() && savedAddresses.some(addr => 
+                        addr.phone?.trim() === tempAddress.phone?.trim() && 
+                        addr.id !== tempAddress.id
+                      ) && (
+                        <span className="ml-2 text-xs text-red-600">
+                          ⚠️ Phone number already exists
+                        </span>
                       )}
                     </label>
                     <input
                       type="tel"
                       placeholder="Customer phone number"
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      className={`w-full p-3 border rounded-lg focus:ring-2 focus:border-blue-500 ${
+                        tempAddress.phone?.trim() && savedAddresses.some(addr => 
+                          addr.phone?.trim() === tempAddress.phone?.trim() && 
+                          addr.id !== tempAddress.id
+                        )
+                          ? "border-red-300 bg-red-50 focus:ring-red-500 focus:border-red-500"
+                          : "border-gray-300 focus:ring-blue-500"
+                      }`}
                       value={tempAddress.phone || ""}
                       onChange={(e) => setTempAddress({ ...tempAddress, phone: e.target.value })}
                     />
+                    {tempAddress.phone?.trim() && savedAddresses.some(addr => 
+                      addr.phone?.trim() === tempAddress.phone?.trim() && 
+                      addr.id !== tempAddress.id
+                    ) && (
+                      <p className="mt-1 text-xs text-red-600">
+                        A customer with this phone number already exists. Please use a different phone number.
+                      </p>
+                    )}
                   </div>
 
                   {/* Address Details with GPS Button */}
@@ -764,34 +954,30 @@ const CombinedCheckoutPage = () => {
                     )}
                   </div>
 
-                  {/* Map Selection Button */}
-                  <div 
-                    onClick={() => setShowMap(true)}
-                    className="w-full p-4 border-2 border-dashed border-gray-300 rounded-lg cursor-pointer hover:border-blue-500 hover:bg-blue-50 transition-colors flex flex-col items-center justify-center text-center"
-                  >
-                    {tempAddress.coordinates && tempAddress.coordinates.lat !== 0 ? (
-                      <div className="text-center">
-                        <div className="text-green-600 text-lg mb-1">✓ Location Selected</div>
-                        <p className="text-sm text-gray-600">
-                          Lat: {tempAddress.coordinates.lat.toFixed(6)}
-                          <br />
-                          Lng: {tempAddress.coordinates.lng.toFixed(6)}
-                        </p>
-                        {tempAddress.details && (
-                          <p className="text-xs text-gray-500 mt-2 truncate max-w-full">
-                            {tempAddress.details}
-                          </p>
-                        )}
-                        <p className="text-xs text-blue-600 mt-2">Click to change location</p>
-                      </div>
-                    ) : (
+                  {/* Image Upload Area */}
+                  <div className="border-2 border-dashed border-gray-300 rounded-xl h-40 relative flex items-center justify-center overflow-hidden">
+                    {imagePreview ? (
                       <>
-                        <div className="text-gray-400 text-2xl mb-2">📍</div>
-                        <p className="text-gray-600 font-medium">Click to select location on map</p>
-                        <p className="text-sm text-gray-500 mt-1">
-                          Select location by clicking on the map
-                        </p>
+                        <img src={imagePreview} className="w-full h-full object-cover" alt="Location preview" />
+                        <button 
+                          onClick={() => {setImagePreview(""); setImageFile(null);}} 
+                          className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full text-xs"
+                        >
+                          ✕
+                        </button>
                       </>
+                    ) : (
+                      <label className="flex flex-col items-center cursor-pointer">
+                        <span className="text-3xl">📸</span>
+                        <span className="text-sm text-gray-500">Capture Location Photo</span>
+                        <input 
+                          type="file" 
+                          capture="environment" 
+                          accept="image/*" 
+                          className="hidden" 
+                          onChange={handleImageUpload} 
+                        />
+                      </label>
                     )}
                   </div>
                 </div>
@@ -802,33 +988,31 @@ const CombinedCheckoutPage = () => {
                     <button
                       onClick={() => {
                         setIsAdding(false);
-                        setSearchQuery("");
-                        setShowSearchResults(false);
-                        setTempAddress({
-                          label: "",
-                          phone: user?.role === "sale" ? "" : userPhone || "",
-                          details: "",
-                          coordinates: { lat: 0, lng: 0 },
-                          api_user_id: user?.id,
-                        });
+                        // Clear search if we cancel adding new customer
+                        if (searchQuery.trim() && !savedAddresses.some(addr => 
+                          addr.label?.toLowerCase() === searchQuery.trim().toLowerCase() ||
+                          addr.phone === searchQuery.trim()
+                        )) {
+                          setSearchQuery("");
+                        }
                       }}
                       className="flex-1 py-3 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 font-medium"
                     >
                       Cancel
                     </button>
                     <button
-                      onClick={handleSaveNewAddress}
-                      disabled={
-                        !tempAddress.label?.trim() ||
-                        !tempAddress.phone?.trim() ||
-                        !tempAddress.details?.trim() ||
-                        !tempAddress.coordinates ||
-                        tempAddress.coordinates.lat === 0
-                      }
-                      className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
-                    >
-                      {selectedAddress && typeof selectedAddress !== 'string' ? "Update Customer" : "Save Customer"}
-                    </button>
+  onClick={handleSaveNewAddress}
+  disabled={
+    !tempAddress.label?.trim() ||
+    !tempAddress.phone?.trim() ||
+    !tempAddress.details?.trim() ||
+    !tempAddress.coordinates ||
+    tempAddress.coordinates.lat === 0
+  }
+  className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
+>
+  Save Customer
+</button>
                   </div>
                 </div>
               </div>
@@ -837,10 +1021,10 @@ const CombinedCheckoutPage = () => {
         </div>
       )}
 
-      {/* Hide other sections when searching */}
-      {!isSearching && (
+      {/* ALWAYS show products and payment methods when shouldShowMainContent is true */}
+      {(!isSearching || isCustomerSelected) && shouldShowMainContent && (
         <>
-          {/* Order Summary */}
+          {/* Order Summary - ALWAYS visible when not searching or customer is selected */}
           <section className="flex flex-col gap-3">
             <h2 className="text-2xl font-semibold text-gray-800">{t.orderSummary}</h2>
             {cart.length === 0 && <p>{t.yourCartIsEmpty}</p>}
@@ -1036,7 +1220,7 @@ const CombinedCheckoutPage = () => {
                                 <svg className="animate-spin h-6 w-6 text-blue-600" viewBox="0 0 24 24">
                                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none"></circle>
                                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                                </svg>
+                              </svg>
                               ) : (
                                 <>
                                   <div className="text-xl mb-1">
@@ -1056,6 +1240,33 @@ const CombinedCheckoutPage = () => {
                           <p className="text-[10px] font-medium text-red-500 mt-1.5 flex items-center gap-1">
                             <span>⚠️</span> Required: Tap the GPS button
                           </p>
+                        )}
+                      </div>
+
+                      {/* Image Upload Area */}
+                      <div className="border-2 border-dashed border-gray-300 rounded-xl h-40 relative flex items-center justify-center overflow-hidden">
+                        {imagePreview ? (
+                          <>
+                            <img src={imagePreview} className="w-full h-full object-cover" alt="Location preview" />
+                            <button 
+                              onClick={() => {setImagePreview(""); setImageFile(null);}} 
+                              className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full text-xs"
+                            >
+                              ✕
+                            </button>
+                          </>
+                        ) : (
+                          <label className="flex flex-col items-center cursor-pointer">
+                            <span className="text-3xl">📸</span>
+                            <span className="text-sm text-gray-500">Capture Location Photo</span>
+                            <input 
+                              type="file" 
+                              capture="environment" 
+                              accept="image/*" 
+                              className="hidden" 
+                              onChange={handleImageUpload} 
+                            />
+                          </label>
                         )}
                       </div>
 
@@ -1129,96 +1340,62 @@ const CombinedCheckoutPage = () => {
             </section>
           )}
 
-          {/* ==================== FIXED: Payment Method Section ==================== */}
-          <section className="flex flex-col gap-3">
-            <h2 className="text-2xl font-semibold text-gray-800">{t.paymentMethod}</h2>
-            
-            {/* QR Payment Method */}
-            <div
-              onClick={() => handlePaymentMethodSelect(t.QR || 'QR')}
-              className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
-                paymentMethod === t.QR ? "border-blue-500 bg-blue-50 shadow-lg" : "border-gray-200 hover:shadow-md"
-              }`}
-            >
-              <div className="flex items-center gap-4">
-                <img
-                  src="/qr.jpg"
-                  alt="QR"
-                  className="w-12 h-12 object-contain"
-                  onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
-                />
-                <div>
-                  <p className="font-semibold text-gray-700">{t.QR || 'QR'}</p>
-                  <p className="text-xs text-gray-500">Scan QR code to pay</p>
-                </div>
-              </div>
-              {paymentMethod === t.QR && (
-                <p className="text-sm text-gray-500 mt-2">
-                  You will scan a QR code for payment
-                </p>
-              )}
-            </div>
+{/* ==================== Payment Method Section ==================== */}
+{<section className="flex flex-col gap-3">
+  <h2 className="text-2xl font-semibold text-gray-800">{t.paymentMethod}</h2>
+  
+  {/* Payment Methods List */}
+  {paymentMethodsToShow.map((method) => (
+    <div
+      key={method.name}
+      onClick={() => handlePaymentMethodSelect(method.name)}
+      className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
+        paymentMethod === method.name
+          ? method.type === 'custom' 
+            ? "border-green-500 bg-green-50 shadow-lg" 
+            : "border-blue-500 bg-blue-50 shadow-lg"
+          : "border-gray-200 hover:shadow-md"
+      }`}
+    >
+      <div className="flex items-center gap-4">
+        <img
+          src={method.image}
+          alt={method.name}
+          className="w-12 h-12 object-contain"
+          onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
+        />
+        <div>
+          <p className="font-semibold text-gray-700">{method.name}</p>
+          <p className="text-xs text-gray-500">
+            {method.type === 'default' 
+              ? method.name === 'QR' ? 'Scan QR code to pay' : 'Pay with cash on delivery'
+              : ''}
+          </p>
+        </div>
+      </div>
+    </div>
+  ))}
 
-            {/* Cash Payment Method */}
-            <div
-              onClick={() => handlePaymentMethodSelect(t.cash || 'Cash')}
-              className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
-                paymentMethod === t.cash ? "border-blue-500 bg-blue-50 shadow-lg" : "border-gray-200 hover:shadow-md"
-              }`}
-            >
-              <div className="flex items-center gap-4">
-                <img
-                  src="/cash.jpg"
-                  alt="Cash"
-                  className="w-12 h-12 object-contain"
-                  onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
-                />
-                <div>
-                  <p className="font-semibold text-gray-700">{t.cash || 'Cash'}</p>
-                  <p className="text-xs text-gray-500">Pay with cash on delivery</p>
-                </div>
-              </div>
-              {paymentMethod === t.cash && (
-                <p className="text-sm text-gray-500 mt-2">
-                  You will pay with cash upon delivery
-                </p>
-              )}
-            </div>
-
-            {/* Custom Payment Methods */}
-            {paymentMethods
-              .filter(method => method.type === 'custom')
-              .map((method) => (
-                <div
-                  key={method.id}
-                  onClick={() => handlePaymentMethodSelect(method.name)}
-                  className={`cursor-pointer border rounded-xl p-5 flex flex-col gap-2 transition-shadow ${
-                    paymentMethod === method.name
-                      ? "border-green-500 bg-green-50 shadow-lg"
-                      : "border-gray-200 hover:shadow-md"
-                  }`}
-                >
-                  <div className="flex items-center gap-4">
-                    <img
-                      src={method.image}
-                      alt={method.name}
-                      className="w-12 h-12 object-contain"
-                      onError={(e) => (e.currentTarget.src = "https://syspro.asia/img/default.png")}
-                    />
-                    <div>
-                      <p className="font-semibold text-gray-700">{method.name}</p>
-                      <p className="text-xs text-gray-500">Custom Payment Method</p>
-                    </div>
-                  </div>
-                  {paymentMethod === method.name && (
-                    <p className="text-sm text-gray-500 mt-2">
-                      Pay with {method.name}
-                    </p>
-                  )}
-                </div>
-              ))
-            }
-          </section>
+  {/* Show More/Less Button */}
+  {paymentMethods.length > maxInitialPaymentMethods && (
+    <button
+      onClick={() => setShowAllPaymentMethods(!showAllPaymentMethods)}
+      className="mt-2 p-3 border border-dashed border-gray-300 rounded-xl hover:bg-gray-50 text-gray-600 font-medium flex items-center justify-center gap-2"
+    >
+      {showAllPaymentMethods ? (
+        <>
+          <span>↑</span>
+          Show Less
+        </>
+      ) : (
+        <>
+          <span>↓</span>
+          Show More ({paymentMethods.length - defaultPaymentMethodsCount} more)
+        </>
+      )}
+    </button>
+  )}
+</section>}
         </>
       )}
 

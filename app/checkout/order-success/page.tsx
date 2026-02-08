@@ -281,6 +281,64 @@ const page = () => {
     a.click();
   };
 
+  const sendInvoiceToTelegram = async (imageDataUrl:any) => {
+    if (!orderId || !imageDataUrl) return;
+    
+    try {
+      setIsLoading(true);
+      
+      // Get token as you do in fetchOrderData
+      let token: string | null = null;
+      const isSalesMode = user?.role === 'sale';
+      
+      if (isSalesMode) {
+        token = localStorage.getItem('sales_token') || 
+                localStorage.getItem('auth_token') || 
+                sessionStorage.getItem('sales_token');
+      } else {
+        token = localStorage.getItem('auth_token') || 
+                localStorage.getItem('token') || 
+                sessionStorage.getItem('auth_token') ||
+                sessionStorage.getItem('token');
+      }
+      
+      if (!token) {
+        toast.error("Please log in to send invoice");
+        return;
+      }
+      
+      // Convert Data URL to blob
+      const blob = await (await fetch(imageDataUrl)).blob();
+      const formData = new FormData();
+      formData.append('invoice_image', blob, `ល.រ_${orderId}_បង្កាន់ដៃ.png`);
+      formData.append('order_id', orderId.toString());
+      
+      const response = await axios.post(
+        `${process.env.NEXT_PUBLIC_API_URL}/orders/${orderId}/send-telegram-invoice`,
+        formData,
+        {
+          withCredentials: true,
+          headers: {
+            'Authorization': `Bearer ${token}`,
+            'Content-Type': 'multipart/form-data'
+          }
+        }
+      );
+      
+      if (response.data.success) {
+        toast.success("Invoice sent to Telegram successfully!");
+      } else {
+        toast.error(response.data.message || "Failed to send invoice");
+      }
+      
+    } catch (error: any) {
+      console.error('Error sending invoice to Telegram:', error);
+      toast.error(error.response?.data?.message || "Error sending invoice");
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
   const handleShare = async () => {
     if (!invoiceImage) return;
     try {
@@ -318,11 +376,11 @@ const page = () => {
                 <div>
                   <h2 className="text-blue-600 font-black text-xl">ល.រ #{orderId}</h2>
                   <p className="text-xs text-gray-500">{formatDate(orderDetails.created_at)}</p>
-                  {/* {user?.role === 'sale' && orderDetails.salesperson_info && (
+                  {user?.role === 'sale' && orderDetails.salesperson_info && (
                     <p className="text-xs text-gray-600 mt-1">
                       អ្នកលក់: {orderDetails.salesperson_info.name}
                     </p>
-                  )} */}
+                  )}
                 </div>
                 <span className="bg-blue-600 text-white text-[10px] px-2 py-1 rounded-full font-bold">បង្កាន់ដៃ</span>
               </div>

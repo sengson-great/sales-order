@@ -431,261 +431,458 @@ export const CheckoutProvider = ({ children }: { children: ReactNode }) => {
     });
   };
 
-  // --- PLACE ORDER ---
-  const placeOrder = async () => {
-    let addressToSend: Address | null = null;
-    let customerName = "";
-    let customerPhone = "";
+// Generate invoice image from order data
+const generateInvoiceImage = (
+  orderPayload: any, 
+  customerName: string, 
+  customerPhone: string,
+  addressData: Address | null
+) => {
+  try {
+    const scale = 2;
+    const width = 384;
     
-    if (selectedAddress === "current") {
-      if (!currentAddress.coordinates) {
-        toast.error("Current address coordinates not set!");
+    // Calculate dynamic height
+    const baseHeight = 240;
+    const itemsCount = orderPayload.items?.length || 0;
+    const itemsHeight = itemsCount * 35;
+    const addressHeight = 60;
+    const totalHeight = baseHeight + itemsHeight + addressHeight + 100;
+    
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return null;
+
+    canvas.width = width * scale;
+    canvas.height = totalHeight * scale;
+    ctx.scale(scale, scale);
+
+    // Draw the Box Style
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillRect(0, 0, width, totalHeight);
+    
+    // Header
+    ctx.fillStyle = '#f8fafc';
+    ctx.fillRect(0, 0, width, 80);
+    ctx.fillStyle = '#1e4ce4';
+    ctx.font = 'bold 18px Arial';
+    ctx.fillText('បង្កាន់ដៃ', 20, 35);
+    ctx.fillStyle = '#64748b';
+    ctx.font = '12px Arial';
+    const orderDate = new Date().toLocaleString('km-KH');
+    ctx.fillText(orderDate, 20, 55);
+
+    // Customer Info
+    let y = 110;
+    if (customerName) {
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 14px Arial';
+      ctx.fillText(customerName || 'អតិថិជន', 20, y);
+      ctx.font = '12px Arial';
+      ctx.fillText(customerPhone || '', 20, y + 18);
+      y += 45;
+    }
+
+    // Address Section
+    if (addressData?.short_address) {
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 12px Arial';
+      ctx.fillText('📍 អាសយដ្ឋាន', 20, y);
+      
+      ctx.fillStyle = '#64748b';
+      ctx.font = '11px Arial';
+      
+      // Text wrapping for address
+      const maxWidth = width - 40;
+      const lineHeight = 14;
+      const words = addressData.short_address.split(' ');
+      let line = '';
+      let lineY = y + 20;
+      
+      for (let n = 0; n < words.length; n++) {
+        const testLine = line + words[n] + ' ';
+        const metrics = ctx.measureText(testLine);
+        const testWidth = metrics.width;
+        
+        if (testWidth > maxWidth && n > 0) {
+          ctx.fillText(line, 20, lineY);
+          line = words[n] + ' ';
+          lineY += lineHeight;
+        } else {
+          line = testLine;
+        }
+      }
+      ctx.fillText(line, 20, lineY);
+      y = lineY + 25;
+    } else {
+      ctx.fillStyle = '#f59e0b';
+      ctx.font = 'italic 11px Arial';
+      ctx.fillText('⚠️ គ្មានអាសយដ្ឋាន', 20, y);
+      y += 30;
+    }
+
+    // Items Separator
+    ctx.strokeStyle = '#e2e8f0';
+    ctx.beginPath(); 
+    ctx.moveTo(20, y); 
+    ctx.lineTo(width - 20, y); 
+    ctx.stroke();
+    y += 25;
+
+    // Items Header
+    ctx.fillStyle = '#1e293b';
+    ctx.font = 'bold 12px Arial';
+    ctx.fillText('ទំនិញ', 20, y);
+    ctx.fillText('តម្លៃ', width - 50, y);
+    y += 20;
+
+    // Items List
+    ctx.font = '12px Arial';
+    orderPayload.items?.forEach((item: any) => {
+      ctx.fillStyle = '#1e293b';
+      ctx.textAlign = 'left';
+      
+      // Find product name from cart
+      const cartItem = cart.find(ci => ci.id === item.product_id);
+      const productName = cartItem?.title || 'Product';
+      ctx.fillText(productName, 20, y);
+      
+      ctx.textAlign = 'right';
+      ctx.fillText(`$${(item.qty * item.price_at_order).toFixed(2)}`, width - 20, y);
+      
+      ctx.fillStyle = '#94a3b8';
+      ctx.textAlign = 'left';
+      ctx.fillText(`${item.qty} x $${item.price_at_order.toFixed(2)}`, 20, y + 15);
+      
+      y += 35;
+    });
+
+    // Payment Method
+    y += 10;
+    ctx.fillStyle = '#f1f5f9';
+    ctx.fillRect(0, y, width, 30);
+    ctx.fillStyle = '#475569';
+    ctx.font = '11px Arial';
+    ctx.textAlign = 'left';
+    const paymentText = paymentMethod === 'QR' ? 'QR' : 
+                       paymentMethod === 'Cash' ? 'សាច់ប្រាក់' : 
+                       paymentMethod === 'Card' ? 'ប័ណ្ណ' : 'មិនមាន';
+    ctx.fillText(`វិធីសាស្រ្តទូទាត់: ${paymentText}`, 20, y + 20);
+    
+    // Total Box
+    y += 40;
+    ctx.fillStyle = '#eff6ff';
+    ctx.fillRect(0, y, width, 70);
+    ctx.fillStyle = '#1e4ce4';
+    ctx.font = 'bold 16px Arial';
+    ctx.textAlign = 'left';
+    ctx.fillText('សរុប', 20, y + 40);
+    ctx.textAlign = 'right';
+    ctx.font = 'bold 20px Arial';
+    ctx.fillText(`$${total.toFixed(2)}`, width - 20, y + 40);
+
+    return canvas.toDataURL('image/png', 1.0);
+  } catch (e) {
+    console.error('Error generating invoice:', e);
+    return null;
+  }
+};
+  
+// Function to send invoice to Telegram
+const sendInvoiceToTelegram = async (orderId: number, imageDataUrl: string) => {
+  try {
+    // Convert Data URL to blob
+    const response = await fetch(imageDataUrl);
+    const blob = await response.blob();
+    
+    const formData = new FormData();
+    formData.append('invoice_image', blob, `ល.រ_${orderId}_បង្កាន់ដៃ.png`);
+    
+    // Get token
+    const token = getAuthToken();
+    
+    if (!token) {
+      console.error('No auth token available for Telegram send');
+      return;
+    }
+    
+    await axios.post(
+      `${process.env.NEXT_PUBLIC_API_URL}/online-orders/${orderId}/send-telegram-invoice`,
+      formData,
+      {
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    console.log('✅ Invoice sent to Telegram automatically');
+  } catch (error) {
+    console.error('❌ Failed to send invoice to Telegram:', error);
+    // Don't show error to user, just log it
+  }
+};
+  
+
+// --- PLACE ORDER ---
+const placeOrder = async () => {
+  // Declare these variables at the top
+  let addressToSend: Address | null = null;
+  let customerName = "";
+  let customerPhone = "";
+  let payload: any = null;
+  
+  if (selectedAddress === "current") {
+    if (!currentAddress.coordinates) {
+      toast.error("Current address coordinates not set!");
+      return;
+    }
+    
+    // For sales mode, validate customer info
+    if (isSalesMode) {
+      if (!customerInfo.name || !customerInfo.phone) {
+        toast.error("Please enter customer name and phone number");
         return;
       }
       
-      // For sales mode, validate customer info
-      if (isSalesMode) {
+      customerName = customerInfo.name;
+      customerPhone = customerInfo.phone;
+      
+      const short_address = await getShortAddress(currentAddress.coordinates.lat, currentAddress.coordinates.lng);
+      addressToSend = { 
+        ...currentAddress, 
+        short_address,
+        phone: customerPhone,
+        label: customerName,
+        details: `Customer address: ${short_address}`,
+      };
+    } else {
+      const userPhone = regularUser?.mobile || regularUser?.phone || "";
+      
+      if (!userPhone) {
+        toast.error("Please add your phone number in your account settings");
+        return;
+      }
+      
+      customerName = regularUser?.name || "Customer";
+      customerPhone = userPhone;
+      
+      const short_address = await getShortAddress(currentAddress.coordinates.lat, currentAddress.coordinates.lng);
+      addressToSend = { 
+        ...currentAddress, 
+        short_address,
+        phone: customerPhone,
+        label: customerName,
+      };
+    }
+  } else {
+    addressToSend = selectedAddress as Address;
+    
+    if (!addressToSend) {
+      toast.error("Please select an address!");
+      return;
+    }
+    
+    if (isSalesMode) {
+      if (addressToSend.label && addressToSend.phone) {
+        customerName = addressToSend.label;
+        customerPhone = addressToSend.phone;
+      } else {
         if (!customerInfo.name || !customerInfo.phone) {
           toast.error("Please enter customer name and phone number");
           return;
         }
-        
         customerName = customerInfo.name;
         customerPhone = customerInfo.phone;
         
-        const short_address = await getShortAddress(currentAddress.coordinates.lat, currentAddress.coordinates.lng);
-        addressToSend = { 
-          ...currentAddress, 
-          short_address,
-          phone: customerPhone,
-          label: customerName,
-          details: `Customer address: ${short_address}`,
-        };
-      } else {
-        const userPhone = regularUser?.mobile || regularUser?.phone || "";
-        
-        if (!userPhone) {
-          toast.error("Please add your phone number in your account settings");
-          return;
-        }
-        
-        customerName = regularUser?.name || "Customer";
-        customerPhone = userPhone;
-        
-        const short_address = await getShortAddress(currentAddress.coordinates.lat, currentAddress.coordinates.lng);
-        addressToSend = { 
-          ...currentAddress, 
-          short_address,
-          phone: customerPhone,
-          label: customerName,
-        };
+        addressToSend.phone = customerPhone;
+        addressToSend.label = customerName;
       }
     } else {
-      addressToSend = selectedAddress as Address;
+      customerName = regularUser?.name || addressToSend.label || "Customer";
+      customerPhone = addressToSend.phone || regularUser?.mobile || regularUser?.phone || "";
       
-      if (!addressToSend) {
-        toast.error("Please select an address!");
+      if (!customerPhone) {
+        toast.error("Saved address must have a phone number. Please update your address.");
         return;
       }
+      
+      if (!addressToSend.phone) {
+        addressToSend.phone = customerPhone;
+      }
+    }
+  }
+
+  if (!addressToSend || cart.length === 0) {
+    toast.error("Cart is empty or no address selected!");
+    return;
+  }
+
+  if (!addressToSend.phone) {
+    toast.error("Phone number is required for delivery");
+    return;
+  }
+
+  // Determine correct IDs
+  let apiUserId: number;
+  let salesUserId: number | undefined = undefined;
+  let isSalesOrder = false;
+
+  if (isSalesMode && salesUser) {
+    isSalesOrder = true;
+    salesUserId = salesUser.id;
+    apiUserId = 20;
+  } else if (regularUser) {
+    isSalesOrder = false;
+    apiUserId = regularUser.id;
+    salesUserId = undefined;
+  } else {
+    toast.error("You must be logged in to place an order!");
+    return;
+  }
+
+  // Create the payload variable
+  payload = {
+    api_user_id: apiUserId,
+    saved_address_id: selectedAddress !== "current" ? addressToSend.id : undefined,
+    address: selectedAddress === "current" ? addressToSend : undefined,
+    address_type: selectedAddress === "current" ? "current" : "saved",
+    paymentMethod,
+    total_qty: cart.reduce((sum, i) => sum + i.qty, 0),
+    total,
+    items: cart.map(i => ({
+      product_id: i.id,
+      qty: i.qty,
+      price_at_order: i.price,
+      total_line: Number((i.price * i.qty).toFixed(2)),
+      image_url: (i.image ?? "").split("/").pop(),
+    })),
+  };
+
+  if (isSalesOrder) {
+    if (!customerName || !customerPhone) {
+      toast.error("For sales orders, please enter customer name and phone");
+      return;
+    }
+    
+    payload.customer_info = {
+      name: customerName,
+      phone: customerPhone,
+      email: customerInfo.email || undefined,
+    };
+    
+    payload.sales_user_id = salesUserId;
+    payload.sales_person_name = salespersonName;
+    payload.is_sales_order = true;
+  }
+
+  try {
+    // Get token using enhanced function
+    const token = getAuthToken();
+    
+    if (!token) {
+      toast.error("Authentication token missing. Please log in again.");
       
       if (isSalesMode) {
-        if (addressToSend.label && addressToSend.phone) {
-          customerName = addressToSend.label;
-          customerPhone = addressToSend.phone;
-        } else {
-          if (!customerInfo.name || !customerInfo.phone) {
-            toast.error("Please enter customer name and phone number");
-            return;
-          }
-          customerName = customerInfo.name;
-          customerPhone = customerInfo.phone;
-          
-          addressToSend.phone = customerPhone;
-          addressToSend.label = customerName;
-        }
+        localStorage.removeItem('sales_token');
+        localStorage.removeItem('auth_token');
+        sessionStorage.removeItem('sales_token');
+        toast.info("Redirecting to sales login...");
+        setTimeout(() => router.push('/sales/login'), 1000);
       } else {
-        customerName = regularUser?.name || addressToSend.label || "Customer";
-        customerPhone = addressToSend.phone || regularUser?.mobile || regularUser?.phone || "";
-        
-        if (!customerPhone) {
-          toast.error("Saved address must have a phone number. Please update your address.");
-          return;
-        }
-        
-        if (!addressToSend.phone) {
-          addressToSend.phone = customerPhone;
-        }
+        localStorage.removeItem('auth_token');
+        localStorage.removeItem('token');
+        sessionStorage.removeItem('auth_token');
+        sessionStorage.removeItem('token');
+        toast.info("Redirecting to login...");
+        setTimeout(() => router.push('/login'), 1000);
       }
-    }
-
-    if (!addressToSend || cart.length === 0) {
-      toast.error("Cart is empty or no address selected!");
       return;
     }
 
-    if (!addressToSend.phone) {
-      toast.error("Phone number is required for delivery");
-      return;
-    }
-
-    // Determine correct IDs
-    let apiUserId: number;
-    let salesUserId: number | undefined = undefined; // Default to undefined
-    let isSalesOrder = false;
-
-    if (isSalesMode && salesUser) {
-      isSalesOrder = true;
-      salesUserId = salesUser.id;
-      apiUserId = 20;
+    // 🔥 STEP 1: FIRST GENERATE THE INVOICE IMAGE
+    // Pass the required variables to the function
+    const invoiceImage = generateInvoiceImage(payload, customerName, customerPhone, addressToSend);
+    
+    // 🔥 STEP 2: MAKE THE ORDER API CALL
+    const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/store-order`, payload, {
+      withCredentials: true,
+      headers: { 
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+    });
+    
+    if (res.data?.success) {
+      const orderId = res.data.order_id;
       
-      console.log('✅ Sales mode - Sales User ID:', salesUserId);
-    } else if (regularUser) {
-      isSalesOrder = false;
-      apiUserId = regularUser.id;
-      salesUserId = undefined; // Explicitly undefined for clarity
-      
-      console.log('✅ Regular mode - No sales user ID');
-    } else {
-      toast.error("You must be logged in to place an order!");
-      return;
-    }
-
-    const payload: any = {
-      api_user_id: apiUserId,
-      saved_address_id: selectedAddress !== "current" ? addressToSend.id : undefined,
-      address: selectedAddress === "current" ? addressToSend : undefined,
-      address_type: selectedAddress === "current" ? "current" : "saved",
-      paymentMethod,
-      total_qty: cart.reduce((sum, i) => sum + i.qty, 0),
-      total,
-      items: cart.map(i => ({
-        product_id: i.id,
-        qty: i.qty,
-        price_at_order: i.price,
-        total_line: Number((i.price * i.qty).toFixed(2)),
-        image_url: (i.image ?? "").split("/").pop(),
-      })),
-    };
-
-    if (isSalesOrder) {
-      if (!customerName || !customerPhone) {
-        toast.error("For sales orders, please enter customer name and phone");
-        return;
+      // 🔥 STEP 3: AUTOMATICALLY SEND INVOICE TO TELEGRAM
+      if (invoiceImage && res.data.telegram_start_link) {
+        // Wait a moment for the order to be fully processed
+        setTimeout(async () => {
+          try {
+            await sendInvoiceToTelegram(orderId, invoiceImage);
+            console.log('✅ Invoice auto-sent to Telegram for order:', orderId);
+          } catch (error) {
+            console.error('❌ Auto-send invoice failed:', error);
+          }
+        }, 1000); // 1 second delay
       }
       
-      payload.customer_info = {
-        name: customerName,
-        phone: customerPhone,
-        email: customerInfo.email || undefined,
-      };
+      toast.success("Order placed successfully!");
       
-      payload.sales_user_id = salesUserId;
-      payload.sales_person_name = salespersonName;
-      payload.is_sales_order = true;
+      if (isSalesOrder) {
+        toast.info(`Customer: ${customerName}, Phone: ${customerPhone}`);
+        if (res.data.salesperson_info?.name) {
+          toast.info(`Salesperson: ${res.data.salesperson_info.name}`);
+        }
+      }
+      
+      // Clear cart after successful order
+      setCart([]);
+      setTotal(0);
+      clearCartStorage();
+      setCustomerInfo({ name: "", phone: "", email: "" });
+      
+      // Redirect to success page
+      router.push(`/checkout/order-success?telegram=${encodeURIComponent(res.data.telegram_start_link)}&order_id=${orderId}`);
     }
-
-    try {
-      // Get token using enhanced function
-      const token = getAuthToken();
-      
-      console.log('🔍 Order Placement:', {
-        mode: isSalesMode ? 'sales' : 'regular',
-        tokenFound: !!token,
-        tokenLength: token?.length,
-        apiUserId,
-        isSalesOrder,
-        salesUserId
-      });
-      
-      if (!token) {
-        toast.error("Authentication token missing. Please log in again.");
-        
-        // Clear storage to force re-login
+  } catch (err: any) {
+    console.error("❌ Order error:", err);
+    
+    if (err.response?.status === 401) {
+      if (err.response?.data?.message === 'Unauthenticated.') {
         if (isSalesMode) {
           localStorage.removeItem('sales_token');
           localStorage.removeItem('auth_token');
           sessionStorage.removeItem('sales_token');
-          toast.info("Redirecting to sales login...");
+          toast.info("Sales session expired. Redirecting to login...");
           setTimeout(() => router.push('/sales/login'), 1000);
         } else {
           localStorage.removeItem('auth_token');
           localStorage.removeItem('token');
           sessionStorage.removeItem('auth_token');
           sessionStorage.removeItem('token');
-          toast.info("Redirecting to login...");
+          toast.info("Session expired. Redirecting to login...");
           setTimeout(() => router.push('/login'), 1000);
         }
         return;
       }
-
-      // Make the API call
-      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/store-order`, payload, {
-        withCredentials: true,
-        headers: { 
-          'Content-Type': 'application/json',
-          'Accept': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-      });
-      
-      if (res.data?.success) {
-        toast.success("Order placed successfully!");
-        
-        if (isSalesOrder) {
-          toast.info(`Customer: ${customerName}, Phone: ${customerPhone}`);
-          if (res.data.salesperson_info?.name) {
-            toast.info(`Salesperson: ${res.data.salesperson_info.name}`);
-          }
-        }
-        
-        // Clear cart after successful order
-        setCart([]);
-        setTotal(0);
-        clearCartStorage(); // Also clear from localStorage
-        setCustomerInfo({ name: "", phone: "", email: "" });
-        
-        router.push(`/checkout/order-success?telegram=${encodeURIComponent(res.data.telegram_start_link)}&order_id=${res.data.order_id}`);
-      }
-    } catch (err: any) {
-      console.error("❌ Order error:", err);
-      
-      if (err.response?.status === 401) {
-        if (err.response?.data?.message === 'Unauthenticated.') {
-          // Clear storage
-          if (isSalesMode) {
-            localStorage.removeItem('sales_token');
-            localStorage.removeItem('auth_token');
-            sessionStorage.removeItem('sales_token');
-            toast.info("Sales session expired. Redirecting to login...");
-            setTimeout(() => router.push('/sales/login'), 1000);
-          } else {
-            localStorage.removeItem('auth_token');
-            localStorage.removeItem('token');
-            sessionStorage.removeItem('auth_token');
-            sessionStorage.removeItem('token');
-            toast.info("Session expired. Redirecting to login...");
-            setTimeout(() => router.push('/login'), 1000);
-          }
-          return;
-        }
-      }
-      
-      if (err.response?.data?.message) {
-        toast.error(err.response.data.message);
-      } else if (err.response?.data?.errors) {
-        const errorMessages = Object.values(err.response.data.errors).flat();
-        errorMessages.forEach((msg: any) => toast.error(msg));
-      } else {
-        toast.error("Order failed. Please try again.");
-      }
     }
-    console.log('🔍 DEBUG - Final payload:', {
-      sales_user_id_in_payload: payload.sales_user_id,
-      sales_person_name_in_payload: payload.sales_person_name,
-      is_sales_order_in_payload: payload.is_sales_order,
-      full_payload_keys: Object.keys(payload),
-    });
-  };
+    
+    if (err.response?.data?.message) {
+      toast.error(err.response.data.message);
+    } else if (err.response?.data?.errors) {
+      const errorMessages = Object.values(err.response.data.errors).flat();
+      errorMessages.forEach((msg: any) => toast.error(msg));
+    } else {
+      toast.error("Order failed. Please try again.");
+    }
+  }
+};
 
   // --- PLACE REWARD ORDER ---
   const placeRewardOrder = async () => {

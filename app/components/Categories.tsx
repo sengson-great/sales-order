@@ -58,7 +58,7 @@ const Categories: React.FC<CategoriesProps> = ({ selectedCategory, onSelect }) =
           <span className="pb-0.5">
             {cat.name}
           </span>
-          <img src={cat.category_pics} alt="" />
+          <img src={cat.category_pics}/>
         </div>
       ))}
     </section>

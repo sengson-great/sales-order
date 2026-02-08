@@ -17,7 +17,7 @@ export type Address = {
   phone?: string;
   details?: string;
   coordinates?: { lat: number; lng: number };
-  place_pic?: string;
+  place_pic?: string; // Added for location image
 };
 
 const containerStyle = { width: "100%", height: "400px" };
@@ -36,12 +36,13 @@ export default function ShippingAddressPage() {
   const [showMapModal, setShowMapModal] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editingId, setEditingId] = useState<number | null>(null);
-  const [imageFile, setImageFile] = useState<File | null>(null);
   
   // Search and pagination states
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_ITEMS_PER_PAGE);
+
+  const [imageFile, setImageFile] = useState<File | null>(null);
 
   const [newAddress, setNewAddress] = useState<Address>({
     label: "",
@@ -49,7 +50,7 @@ export default function ShippingAddressPage() {
     details: "",
     coordinates: undefined,
     api_user_id: user?.id || salesUser?.id || undefined,
-    place_pic: ""
+    place_pic: "",
   });
 
   // Current location detection state
@@ -79,6 +80,18 @@ export default function ShippingAddressPage() {
   useEffect(() => {
     fetchAddress();
   }, [setLoading]);
+
+  // Function to check if phone number already exists
+  const checkPhoneExists = (phone: string, excludeId?: number | null): boolean => {
+    if (!phone) return false;
+    
+    const trimmedPhone = phone.trim();
+    return savedAddresses.some(address => {
+      // Skip the current address being edited
+      if (excludeId && address.id === excludeId) return false;
+      return address.phone?.trim() === trimmedPhone;
+    });
+  };
 
   // Current location detection function - store coordinates but don't show to user
   const handleDetectCurrentLocation = async () => {
@@ -204,8 +217,37 @@ export default function ShippingAddressPage() {
   }, [searchQuery]);
 
   const handleSaveAddress = async () => {
+    // Validation checks
     if (!newAddress.label || !newAddress.details) {
       toast.error("Please fill in all required fields.");
+      return;
+    }
+
+    // Phone validation for sales users
+    if ((isSalesOnField || salesUser?.role === "sale") && !newAddress.phone?.trim()) {
+      toast.error("Phone number is required for customers.");
+      return;
+    }
+
+    // Check for duplicate phone number (only for sales users and when phone is provided)
+    const phoneToCheck = newAddress.phone?.trim();
+    if (phoneToCheck && (isSalesOnField || salesUser?.role === "sale")) {
+      const phoneExists = checkPhoneExists(phoneToCheck, editingId);
+      if (phoneExists) {
+        toast.error("A customer with this phone number already exists.");
+        return;
+      }
+    }
+
+    // Location validation for salesOnField
+    if (isSalesOnField && !newAddress.coordinates) {
+      toast.error("Please capture the GPS location for the field customer.");
+      return;
+    }
+
+    // Location validation for regular users
+    if (!isSalesOnField && salesUser?.role !== "sale" && !newAddress.coordinates) {
+      toast.error("Please select a location on the map.");
       return;
     }
   
@@ -213,16 +255,17 @@ export default function ShippingAddressPage() {
     formData.append('label', newAddress.label.trim());
     formData.append('details', newAddress.details.trim());
     formData.append('api_user_id', String(newAddress.api_user_id));
-    formData.append('phone', newAddress.phone?.trim() || "");
+    
+    // Always append phone if available, otherwise append empty string
+    formData.append('phone', phoneToCheck || "");
     
     if (newAddress.coordinates) {
       formData.append('coordinates[lat]', String(newAddress.coordinates.lat));
       formData.append('coordinates[lng]', String(newAddress.coordinates.lng));
     }
     
-    // FIX: Change 'imageFile' to 'locationImage' to match your state
-    if (locationImage) {
-      formData.append('place_pic', locationImage);
+    if (imageFile) {
+      formData.append('place_pic', imageFile);
     }
   
     setLoading(true);
@@ -230,12 +273,12 @@ export default function ShippingAddressPage() {
       if (isEditing && editingId) {
         // Laravel multipart bug fix: Use POST + _method PUT
         formData.append('_method', 'PUT');
-        const res = await api.post(`/addresses/${editingId}`, formData, {
+        await api.post(`/addresses/${editingId}`, formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         toast.success("Updated successfully");
       } else {
-        const res = await api.post("/addresses", formData, {
+        await api.post("/addresses", formData, {
           headers: { 'Content-Type': 'multipart/form-data' }
         });
         toast.success("Saved successfully");
@@ -243,14 +286,25 @@ export default function ShippingAddressPage() {
       fetchAddress();
       handleCancel();
     } catch (err: any) {
-      console.error("Error saving:", err.response?.data);
-      toast.error("Failed to save address");
+      console.error("Save error:", err);
+      if (err.response?.status === 422) {
+        // Handle validation errors from backend
+        const errors = err.response.data.errors;
+        if (errors?.phone) {
+          toast.error("Phone number already exists.");
+        } else {
+          toast.error("Validation failed. Please check your input.");
+        }
+      } else {
+        toast.error("Failed to save address");
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleEditAddress = (address: Address) => {
+    console.log("Editing address:", address);
     setNewAddress({
       ...address,
       api_user_id: user?.id || salesUser?.id || undefined,
@@ -261,9 +315,9 @@ export default function ShippingAddressPage() {
     setShowFormModal(true);
     setSelectedAddress(address.id || null);
     
-    // FIX: Prepend your API URL to the stored path
+    // Set image preview if exists
     if (address.place_pic) {
-      setImagePreview(`${process.env.NEXT_PUBLIC_API_URL}/storage/${address.place_pic}`);
+      setImagePreview(address.place_pic);
     }
   };
 
@@ -607,6 +661,12 @@ export default function ShippingAddressPage() {
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   Phone {isSalesOnField || salesUser?.role === "sale" ? "*" : ""}
+                  {(isSalesOnField || salesUser?.role === "sale") && newAddress.phone?.trim() && 
+                   checkPhoneExists(newAddress.phone.trim(), editingId) && (
+                    <span className="ml-2 text-xs text-red-600">
+                      ⚠️ Phone number already exists
+                    </span>
+                  )}
                 </label>
                 {!isSalesOnField && user?.role !== "sale" && getUserPhone() ? (
                   <div className="space-y-3 mb-3">
@@ -645,18 +705,26 @@ export default function ShippingAddressPage() {
                     isSalesOnField ? "Customer phone number" : 
                     salesUser?.role === "sale" ? "Customer phone number" : "Phone number"
                   }
-                  className={`w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
+                  className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 ${
                     !isSalesOnField && user?.role !== "sale" && !newAddress.phone && !!getUserPhone() 
                       ? "bg-gray-100 cursor-not-allowed" 
-                      : ""
+                      : (isSalesOnField || salesUser?.role === "sale") && newAddress.phone?.trim() && 
+                        checkPhoneExists(newAddress.phone.trim(), editingId)
+                      ? "border-red-300 bg-red-50 focus:ring-red-500 focus:border-red-500"
+                      : "border-gray-300"
                   }`}
                   value={newAddress.phone || ""}
                   onChange={(e) => setNewAddress({ ...newAddress, phone: e.target.value })}
                   disabled={!isSalesOnField && user?.role !== "sale" && !newAddress.phone && !!getUserPhone()}
                 />
+                {(isSalesOnField || salesUser?.role === "sale") && newAddress.phone?.trim() && 
+                 checkPhoneExists(newAddress.phone.trim(), editingId) && (
+                  <p className="mt-1 text-xs text-red-600">
+                    A customer with this phone number already exists. Please use a different phone number.
+                  </p>
+                )}
               </div>
 
-              {/* Address Details */}
               <div className="w-full">
                 <label className="block text-sm font-semibold text-gray-700 mb-2">
                   {isSalesOnField ? "Location Details *" : 
@@ -711,64 +779,39 @@ export default function ShippingAddressPage() {
                       </button>
                     </div>
                   )}
-                </div>
-
-                {/* Error message below the row */}
-                {isSalesOnField && !newAddress.coordinates && !isDetectingLocation && (
-                  <p className="text-[10px] font-medium text-red-500 mt-1.5 flex items-center gap-1">
-                    <span>⚠️</span> Required: Tap the GPS button
-                  </p>
-                )}
               </div>
 
+                  {/* Error message below the row */}
+                  {isSalesOnField && !newAddress.coordinates && !isDetectingLocation && (
+                    <p className="text-[10px] font-medium text-red-500 mt-1.5 flex items-center gap-1">
+                      <span>⚠️</span> Required: Tap the GPS button
+                    </p>
+                  )}
+              </div>
 
-                  {/* Location Image Upload for Sales On Field */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Location Photo (Optional)
-                    </label>
-                    <div className="space-y-3">
-                      {imagePreview ? (
-                        <div className="relative">
-                          <img 
-                            src={imagePreview} 
-                            alt="Location preview" 
-                            className="w-full h-48 object-cover rounded-lg"
-                          />
-                          <button
-                            type="button"
-                            onClick={handleRemoveImage}
-                            className="absolute top-2 right-2 bg-red-500 text-white p-1 rounded-full hover:bg-red-600"
-                          >
-                            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                          </button>
-                          <p className="text-xs text-gray-500 mt-1 text-center">
-                            Click the X to remove photo
-                          </p>
-                        </div>
-                      ) : (
-                        <label className="block cursor-pointer">
-                          <div className="w-full p-6 border-2 border-dashed border-gray-300 rounded-lg hover:border-blue-500 hover:bg-blue-50 transition-colors flex flex-col items-center justify-center text-center">
-                            <div className="text-gray-400 text-3xl mb-3">📸</div>
-                            <p className="text-gray-600 font-medium">Upload Location Photo</p>
-                            <p className="text-sm text-gray-500 mt-1">
-                              Take a photo of the customer's location
-                            </p>
-                            <p className="text-xs text-gray-400 mt-2">Max 5MB, JPG/PNG format</p>
-                          </div>
-                          <input
-                            type="file"
-                            accept="image/*"
-                            capture="environment"
-                            onChange={handleImageUpload}
-                            className="hidden"
-                          />
-                        </label>
-                      )}
-                    </div>
-                  </div>
+              {/* Image Upload Area */}
+              <div className="border-2 border-dashed border-gray-300 rounded-xl h-40 relative flex items-center justify-center overflow-hidden">
+                {imagePreview ? (
+                  <>
+                    <img src={imagePreview} className="w-full h-full object-cover" />
+                    <button 
+                      onClick={() => {setImagePreview(""); setImageFile(null);}} 
+                      className="absolute top-2 right-2 bg-red-600 text-white p-1 rounded-full text-xs"
+                    >
+                      ✕
+                    </button>
+                  </>
+                ) : (
+                  <label className="flex flex-col items-center cursor-pointer">
+                    <span className="text-3xl">📸</span>
+                    <span className="text-sm text-gray-500">Capture Location Photo</span>
+                    <input 
+                      type="file" capture="environment" accept="image/*" 
+                      className="hidden" onChange={handleImageUpload} 
+                    />
+                  </label>
+                )}
+              </div>
 
               {/* Location Selection for Regular Users */}
               {!isSalesOnField && (
@@ -864,7 +907,10 @@ export default function ShippingAddressPage() {
                     (isSalesOnField && (!newAddress.phone || !newAddress.coordinates)) ||
                     (salesUser?.role === "sale" && !newAddress.phone) ||
                     (!isSalesOnField && !newAddress.coordinates) ||
-                    (!isSalesOnField && user?.role !== "sale" && !newAddress.phone && !getUserPhone())
+                    (!isSalesOnField && user?.role !== "sale" && !newAddress.phone && !getUserPhone()) ||
+                    ((isSalesOnField || salesUser?.role === "sale") && 
+                     !!newAddress.phone?.trim() && 
+                     checkPhoneExists(newAddress.phone.trim(), editingId))
                   }
                   className="flex-1 py-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium disabled:bg-blue-300 disabled:cursor-not-allowed"
                 >
