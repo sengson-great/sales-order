@@ -784,50 +784,52 @@ const placeOrder = async () => {
   // ============================================
   // 3. CREATE PAYLOAD (UPDATED FOR CONTACTS)
   // ============================================
-  payload = {
-    api_user_id: apiUserId,
-    saved_address_id: selectedAddress !== "current" ? addressToSend.id : undefined,
-    address: selectedAddress === "current" ? addressToSend : undefined,
-    address_type: selectedAddress === "current" ? "current" : "saved",
-    paymentMethod,
-    total_qty: cart.reduce((sum, i) => sum + i.qty, 0),
-    total,
-    items: cart.map(i => ({
-      product_id: i.id,
-      qty: i.qty,
-      price_at_order: i.price,
-      total_line: Number((i.price * i.qty).toFixed(2)),
-      image_url: (i.image ?? "").split("/").pop(),
-    })),
-  };
+// Create a clean payload without sending both IDs
+payload = {
+  api_user_id: apiUserId,
+  paymentMethod,
+  total_qty: cart.reduce((sum, i) => sum + i.qty, 0),
+  total,
+  items: cart.map(i => ({
+    product_id: i.id,
+    qty: i.qty,
+    price_at_order: i.price,
+    total_line: Number((i.price * i.qty).toFixed(2)),
+    image_url: (i.image ?? "").split("/").pop(),
+  })),
+};
 
-  if (isSalesOrder) {
-    if (!customerName || !customerPhone) {
-      toast.error("For sales orders, please enter customer name and phone");
-      return;
-    }
-    
-    // ============================================
-    // NEW: SEND CONTACT ID INSTEAD OF CUSTOMER INFO
-    // ============================================
-    if (contactId) {
-      // Send contact_id instead of customer_info
-      payload.contact_id = contactId;
-      console.log('Order payload includes contact_id:', contactId);
-    } else {
-      // Fallback: send customer_info for new customers
-      payload.customer_info = {
-        name: customerName,
-        phone: customerPhone,
-        email: customerEmail || undefined,
-      };
-      console.log('Order payload includes customer_info (new customer)');
-    }
-    
-    payload.sales_user_id = salesUserId;
-    payload.sales_person_name = salespersonName;
-    payload.is_sales_order = true;
+// Determine which address identifier to use
+if (contactId) {
+  // Sales mode with contact from contacts table
+  payload.contact_id = contactId;
+  payload.address_type = 'current';
+  payload.address = addressToSend;
+} else if (selectedAddress !== "current" && addressToSend?.id) {
+  // Regular saved address
+  payload.saved_address_id = addressToSend.id;
+  payload.address_type = 'saved';
+} else {
+  // Current address
+  payload.address_type = 'current';
+  payload.address = addressToSend;
+}
+
+// Sales order fields
+if (isSalesOrder) {
+  // Only send customer_info if NOT using contact_id
+  if (!contactId) {
+    payload.customer_info = {
+      name: customerName,
+      phone: customerPhone,
+      email: customerEmail || undefined,
+    };
   }
+  
+  payload.sales_user_id = salesUserId;
+  payload.sales_person_name = salespersonName;
+  payload.is_sales_order = true;
+}
 
   try {
     // Get token using enhanced function

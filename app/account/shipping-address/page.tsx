@@ -307,6 +307,22 @@ export default function ShippingAddressPage() {
     // Append optional fields if they exist
     if (newContact.email) formData.append('email', newContact.email.trim());
     if (newContact.address_line_1) formData.append('address_line_1', newContact.address_line_1.trim());
+    if (newContact.latitude && newContact.longitude) {
+      // Store coordinates as JSON in address_line_2
+      const coordinatesData = {
+        lat: newContact.latitude,
+        lng: newContact.longitude,
+        type: 'gps',
+        timestamp: new Date().toISOString()
+      };
+      
+      // Send both ways for compatibility
+      formData.append('address_line_2', JSON.stringify(coordinatesData));
+      formData.append('latitude', String(newContact.latitude));
+      formData.append('longitude', String(newContact.longitude));
+      
+      console.log('Sending coordinates data:', coordinatesData);
+    }
     if (newContact.address_line_2) formData.append('address_line_2', newContact.address_line_2.trim());
     if (newContact.city) formData.append('city', newContact.city.trim());
     if (newContact.state) formData.append('state', newContact.state.trim());

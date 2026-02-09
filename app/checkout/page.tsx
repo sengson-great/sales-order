@@ -928,113 +928,26 @@ const CombinedCheckoutPage = () => {
                     )}
                   </div>
 
-                  {/* Email Field */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      Email Address
-                    </label>
-                    <input
-                      type="email"
-                      placeholder="Customer email address"
-                      className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                      value={tempContact.email || ""}
-                      onChange={(e) => setTempContact({ ...tempContact, email: e.target.value })}
-                    />
-                  </div>
-
                   {/* Address Fields */}
                   <div className="space-y-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Address Line 1 *
+                        Address Details *
                       </label>
-                      <input
-                        type="text"
-                        placeholder="Street address, P.O. Box, etc."
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        value={tempContact.address_line_1 || ""}
-                        onChange={(e) => setTempContact({ ...tempContact, address_line_1: e.target.value })}
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-2">
-                        Address Line 2
-                      </label>
-                      <input
-                        type="text"
-                        placeholder="Apartment, suite, unit, etc."
-                        className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        value={tempContact.address_line_2 || ""}
-                        onChange={(e) => setTempContact({ ...tempContact, address_line_2: e.target.value })}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          City
-                        </label>
+                      <div className="flex flex-1 space-x-2">
                         <input
                           type="text"
-                          placeholder="City"
+                          placeholder="Street address, P.O. Box, etc."
                           className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          value={tempContact.city || ""}
-                          onChange={(e) => setTempContact({ ...tempContact, city: e.target.value })}
+                          value={tempContact.address_line_1 || ""}
+                          onChange={(e) => setTempContact({ ...tempContact, address_line_1: e.target.value })}
                         />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          State/Province
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="State or province"
-                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          value={tempContact.state || ""}
-                          onChange={(e) => setTempContact({ ...tempContact, state: e.target.value })}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          Country
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="Country"
-                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          value={tempContact.country || ""}
-                          onChange={(e) => setTempContact({ ...tempContact, country: e.target.value })}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-2">
-                          ZIP/Postal Code
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="ZIP or postal code"
-                          className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                          value={tempContact.zip_code || ""}
-                          onChange={(e) => setTempContact({ ...tempContact, zip_code: e.target.value })}
-                        />
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* GPS Location */}
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-2">
-                      GPS Location *
-                    </label>
-                    <button
+                                                    {/* GPS Location */}
+                                                    <button
                       type="button"
                       onClick={handleDetectCurrentLocation}
                       disabled={isDetectingLocation}
-                      className={`w-full p-3 border-2 rounded-lg flex flex-col items-center justify-center transition-all ${
+                      className={`w-1/3 p-3 border-2 rounded-lg flex flex-col items-center justify-center transition-all ${
                         isDetectingLocation 
                           ? "bg-gray-100 border-gray-200" 
                           : tempContact.latitude
@@ -1055,19 +968,18 @@ const CombinedCheckoutPage = () => {
                           <span className="text-sm font-medium">
                             {tempContact.latitude ? "Location Captured" : "Capture GPS Location"}
                           </span>
-                          {tempContact.latitude && (
-                            <span className="text-xs mt-1">
-                              Lat: {tempContact.latitude.toFixed(6)}, Lng: {tempContact.longitude?.toFixed(6)}
-                            </span>
-                          )}
                         </>
                       )}
                     </button>
+                      </div>
+                  <div>
                     {!tempContact.latitude && !isDetectingLocation && (
                       <p className="text-sm text-red-500 mt-2">
                         ⚠️ Required: Capture GPS location for customer
                       </p>
                     )}
+                  </div>
+                    </div>
                   </div>
 
                   {/* Image Upload Area */}
