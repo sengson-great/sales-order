@@ -433,8 +433,17 @@ const CombinedCheckoutPage = () => {
     }
   };
 
+  const isValidPhone = (phone: string) => {
+    // Regex for Cambodian phone numbers: 
+    // Starts with 0, followed by 8-9 digits (total 9-10)
+    const phoneRegex = /^0\d{8,9}$/;
+    return phoneRegex.test(phone.trim());
+  };
+
   // Save new contact to contacts table
   const handleSaveNewContact = async () => {
+    const phone = tempContact.mobile?.trim() || "";
+
     if (!tempContact.name?.trim()) {
       toast.error("Please enter customer name");
       return;
@@ -447,6 +456,11 @@ const CombinedCheckoutPage = () => {
 
     if (!tempContact.address_line_1?.trim()) {
       toast.error("Please enter address");
+      return;
+    }
+
+    if (!isValidPhone(phone)) {
+      toast.error("Invalid phone format. Must start with 0 and be 9-10 digits.");
       return;
     }
 
@@ -918,6 +932,12 @@ const CombinedCheckoutPage = () => {
                       value={tempContact.mobile || ""}
                       onChange={(e) => setTempContact({ ...tempContact, mobile: e.target.value })}
                     />
+                    {/* Real-time Validation Message */}
+                    {tempContact.mobile && !isValidPhone(tempContact.mobile) && (
+                      <p className="mt-1 text-xs text-red-500">
+                        Phone must start with 0 and be 9-10 digits total.
+                      </p>
+                    )}
                     {tempContact.mobile?.trim() && contacts.some(contact => 
                       contact.mobile?.trim() === tempContact.mobile?.trim() && 
                       contact.id !== tempContact.id
