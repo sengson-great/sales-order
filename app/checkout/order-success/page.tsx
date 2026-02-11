@@ -18,6 +18,9 @@ const page = () => {
   const [invoiceImage, setInvoiceImage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isGenerating, setIsGenerating] = useState(false);
+  const hasSentRef = useRef(false);
+  const isInitialMount = useRef(true);
+  const [isSending, setIsSending] = useState(false);
 
   // Helper functions
   const safeNumber = (value: any): number => {
@@ -53,243 +56,273 @@ const page = () => {
     return orderData.address_info.type || '';
   };
 
-  // Logic to "Download that Box" - UPDATED WITH KHMER TEXT
-  const generateBoxImage = (orderData: any) => {
-    if (!orderData) return;
-    setIsGenerating(true);
-    
-    setTimeout(() => {
-      try {
-        const scale = 2;
-        const width = 384;
-        
-        // Calculate dynamic height
-        const baseHeight = 240;
-        const itemsCount = orderData.items?.length || 0;
-        const itemsHeight = itemsCount * 35;
-        const addressHeight = 60; // Height for address section
-        const totalHeight = baseHeight + itemsHeight + addressHeight + 100;
-        
-        const canvas = document.createElement('canvas');
-        const ctx = canvas.getContext('2d');
-        if (!ctx) return;
+/**
+ * Generates a beautiful Khmer-style receipt image (PNG) as Data URL
+ * @param orderData - The order details object from API
+ * @param orderId - Order ID for header
+ * @returns Promise<string> - resolves with data:image/png;base64,...
+ */
+const generateBoxImage = (orderData: any, orderId: string | number): Promise<string> => {
+  return new Promise((resolve, reject) => {
+    if (!orderData || !orderId) {
+      return reject(new Error('Missing order data or ID'));
+    }
 
-        canvas.width = width * scale;
-        canvas.height = totalHeight * scale;
-        ctx.scale(scale, scale);
+    try {
+      const scale = 2;              // Higher scale = sharper image
+      const width = 384;            // Typical thermal printer width (~384px @ 2x)
+      
+      // Dynamic height calculation
+      const baseHeight = 240;
+      const itemsCount = orderData.items?.length || 0;
+      const itemsHeight = itemsCount * 40; // ~40px per item line
+      const addressHeight = orderData.address_info?.address ? 80 : 40;
+      const totalHeight = baseHeight + itemsHeight + addressHeight + 120;
 
-        // Draw the Box Style
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, totalHeight);
-        
-        // Header (in Khmer)
-        ctx.fillStyle = '#f8fafc';
-        ctx.fillRect(0, 0, width, 80);
-        ctx.fillStyle = '#1e4ce4';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText(`ល.រ ${orderId}`, 20, 35); // Order # in Khmer
-        ctx.fillStyle = '#64748b';
-        ctx.font = '12px Arial';
-        ctx.fillText(formatDate(orderData.created_at), 20, 55);
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return reject(new Error('Cannot get canvas context'));
 
-        // Customer Info (in Khmer)
-        let y = 110;
-        if (orderData.customer_info) {
-          ctx.fillStyle = '#1e293b';
-          ctx.font = 'bold 14px Arial';
-          ctx.fillText(orderData.customer_info.name || 'អតិថិជន', 20, y); // Customer in Khmer
-          ctx.font = '12px Arial';
-          ctx.fillText(orderData.customer_info.phone || '', 20, y + 18);
-          y += 45;
-        }
+      canvas.width = width * scale;
+      canvas.height = totalHeight * scale;
+      ctx.scale(scale, scale);
 
-        // Address Section (in Khmer) - SIMPLE VERSION
-        const displayAddress = getDisplayAddress(orderData);
-        if (displayAddress) {
-          ctx.fillStyle = '#1e293b';
-          ctx.font = 'bold 12px Arial';
-          ctx.fillText('📍 អាសយដ្ឋាន', 20, y); // Address in Khmer with emoji
-          
-          ctx.fillStyle = '#64748b';
-          ctx.font = '11px Arial';
-          
-          // Text wrapping for address
-          const maxWidth = width - 40;
-          const lineHeight = 14;
-          const words = displayAddress.split(' ');
-          let line = '';
-          let lineY = y + 20;
-          
-          for (let n = 0; n < words.length; n++) {
-            const testLine = line + words[n] + ' ';
-            const metrics = ctx.measureText(testLine);
-            const testWidth = metrics.width;
-            
-            if (testWidth > maxWidth && n > 0) {
-              ctx.fillText(line, 20, lineY);
-              line = words[n] + ' ';
-              lineY += lineHeight;
-            } else {
-              line = testLine;
+      // Background
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, width, totalHeight);
+
+      // ────────────────────────────────────────────────
+      // HEADER (blue bar + order info)
+      // ────────────────────────────────────────────────
+      ctx.fillStyle = '#1e4ce4'; // Blue header
+      ctx.fillRect(0, 0, width, 80);
+
+      ctx.fillStyle = '#FFFFFF';
+      ctx.font = 'bold 20px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText(`លេខបង្កាន់ដៃ ${orderId}`, 20, 40); // Order #
+
+      ctx.font = '14px Arial';
+      ctx.fillText(formatDate(orderData.created_at), 20, 65);
+
+      // ────────────────────────────────────────────────
+      // CUSTOMER INFO
+      // ────────────────────────────────────────────────
+      let y = 110;
+
+            // Add salesperson name if available
+            if (orderData.salesperson_info?.name) {
+              ctx.fillStyle = '#7c3aed'; // Purple color for salesperson
+              ctx.font = 'bold 14px Arial';
+              ctx.textAlign = 'left';
+              ctx.fillText('អ្នកលក់ / Salesperson', 20, y);
+              
+              ctx.fillStyle = '#1e293b';
+              ctx.font = '14px Arial';
+              ctx.fillText(orderData.salesperson_info.name, 20, y + 20);
+              y += 55;
             }
-          }
-          ctx.fillText(line, 20, lineY);
-          y = lineY + 25;
-        } else {
-          ctx.fillStyle = '#f59e0b';
-          ctx.font = 'italic 11px Arial';
-          ctx.fillText('⚠️ គ្មានអាសយដ្ឋាន', 20, y); // No address in Khmer
-          y += 30;
-        }
 
-        // Items Separator
-        ctx.strokeStyle = '#e2e8f0';
-        ctx.beginPath(); 
-        ctx.moveTo(20, y); 
-        ctx.lineTo(width - 20, y); 
-        ctx.stroke();
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 16px Arial';
+      ctx.fillText('អតិថិជន / Customer', 20, y);
+      y += 25;
+
+      ctx.font = '14px Arial';
+      ctx.fillText(orderData.customer_info?.name || 'អតិថិជន', 20, y);
+      y += 20;
+
+      if (orderData.customer_info?.phone) {
+        ctx.fillText(`ទូរស័ព្ទ: ${orderData.customer_info.phone}`, 20, y);
         y += 25;
-
-        // Items Header (in Khmer)
-        ctx.fillStyle = '#1e293b';
-        ctx.font = 'bold 12px Arial';
-        ctx.fillText('ទំនិញ', 20, y); // Items in Khmer
-        ctx.fillText('តម្លៃ', width - 50, y); // Amount in Khmer
-        y += 20;
-
-        // Items List
-        ctx.font = '12px Arial';
-        orderData.items?.forEach((item: any) => {
-          ctx.fillStyle = '#1e293b';
-          ctx.textAlign = 'left';
-          
-          const productName = item.product_name;
-          ctx.fillText(productName, 20, y);
-          
-          ctx.textAlign = 'right';
-          ctx.fillText(formatCurrency(item.qty * item.price_at_order), width - 20, y);
-          
-          ctx.fillStyle = '#94a3b8';
-          ctx.textAlign = 'left';
-          ctx.fillText(`${item.qty} x ${formatCurrency(item.price_at_order)}`, 20, y + 15);
-          
-          y += 35;
-        });
-
-        // Payment Method (in Khmer)
-        y += 10;
-        ctx.fillStyle = '#f1f5f9';
-        ctx.fillRect(0, y, width, 30);
-        ctx.fillStyle = '#475569';
-        ctx.font = '11px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText(`វិធីសាស្រ្តទូទាត់: ${orderData.payment_method || 'មិនមាន'}`, 20, y + 20);
-        
-        // Total Box (in Khmer)
-        y += 40;
-        ctx.fillStyle = '#eff6ff';
-        ctx.fillRect(0, y, width, 70);
-        ctx.fillStyle = '#1e4ce4';
-        ctx.font = 'bold 16px Arial';
-        ctx.textAlign = 'left';
-        ctx.fillText('សរុប', 20, y + 40); // Total in Khmer
-        ctx.textAlign = 'right';
-        ctx.font = 'bold 20px Arial';
-        ctx.fillText(formatCurrency(orderData.total), width - 20, y + 40);
-
-        setInvoiceImage(canvas.toDataURL('image/png', 1.0));
-      } catch (e) {
-        console.error('Error generating invoice:', e);
-      } finally {
-        setIsGenerating(false);
       }
-    }, 200);
-  };
 
-  useEffect(() => {
-    const fetchOrderData = async () => {
-      if (!orderId) return;
-      try {
-        setIsLoading(true);
-        
-        // Get token based on auth type
-        let token: string | null = null;
-        const isSalesMode = user?.role === 'sale';
-        
-        if (isSalesMode) {
-          token = localStorage.getItem('sales_token') || 
-                  localStorage.getItem('auth_token') || 
-                  sessionStorage.getItem('sales_token');
-        } else {
-          token = localStorage.getItem('auth_token') || 
-                  localStorage.getItem('token') || 
-                  sessionStorage.getItem('auth_token') ||
-                  sessionStorage.getItem('token');
-        }
-        
-        if (!token) {
-          toast.error("Please log in to view order details");
-          return;
-        }
-  
-        // Fetch order details
-        const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/online-orders/${orderId}`, {
-          withCredentials: true,
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Accept': 'application/json'
+      // Address
+      const displayAddress = getDisplayAddress(orderData);
+      if (displayAddress && displayAddress.trim() !== '') {
+        ctx.font = 'bold 14px Arial';
+        ctx.fillText('អាសយដ្ឋាន / Address', 20, y);
+        y += 22;
+
+        ctx.font = '12px Arial';
+        ctx.fillStyle = '#475569';
+
+        const maxWidth = width - 40;
+        const lineHeight = 16;
+        const words = displayAddress.split(' ');
+        let line = '';
+        let lineY = y;
+
+        words.forEach((word: string) => {
+          const testLine = line + word + ' ';
+          const metrics = ctx.measureText(testLine);
+          if (metrics.width > maxWidth && line !== '') {
+            ctx.fillText(line.trim(), 20, lineY);
+            line = word + ' ';
+            lineY += lineHeight;
+          } else {
+            line = testLine;
           }
         });
-        
-        console.log('🔍 Order API Response:', res.data);
-        
-        if (res.data?.success) {
-          const orderData = res.data.data;
-          setOrderDetails(orderData);
-          
-          // Log address info for debugging
-          console.log('🔍 Address info:', orderData.address_info);
-          console.log('🔍 Customer info:', orderData.customer_info);
-          
-          generateBoxImage(orderData);
+        if (line.trim()) {
+          ctx.fillText(line.trim(), 20, lineY);
         }
-      } catch (err: any) {
-        console.error("Error fetching order details:", err);
-        
-        if (err.response?.status === 401) {
-          toast.error("Session expired. Please log in again.");
-        } else if (err.response?.status === 403) {
-          toast.error("You don't have permission to view this order");
-        } else if (err.response?.status === 404) {
-          toast.error("Order not found");
-        } else {
-          toast.error(err.response?.data?.message || "Error fetching order details");
-        }
-      } finally {
-        setIsLoading(false);
+        y = lineY + 30;
       }
-    };
+
+      // ────────────────────────────────────────────────
+      // ITEMS LIST
+      // ────────────────────────────────────────────────
+      ctx.fillStyle = '#1e293b';
+      ctx.font = 'bold 16px Arial';
+      ctx.fillText('ទំនិញ / Items', 20, y);
+      y += 25;
+
+      ctx.strokeStyle = '#e2e8f0';
+      ctx.beginPath();
+      ctx.moveTo(20, y - 10);
+      ctx.lineTo(width - 20, y - 10);
+      ctx.stroke();
+      y += 10;
+
+      orderData.items?.forEach((item: any) => {
+        ctx.font = '14px Arial';
+        ctx.fillText(item.product_name || 'ផលិតផល', 20, y);
+        
+        ctx.textAlign = 'right';
+        ctx.fillText(
+          formatCurrency(safeNumber(item.qty) * safeNumber(item.price_at_order)),
+          width - 20,
+          y
+        );
+
+        ctx.textAlign = 'left';
+        ctx.font = '12px Arial';
+        ctx.fillStyle = '#64748b';
+        ctx.fillText(`${item.qty} × ${formatCurrency(item.price_at_order)}`, 20, y + 18);
+        ctx.fillStyle = '#1e293b';
+        y += 40;
+      });
+
+      // ────────────────────────────────────────────────
+      // TOTAL SECTION
+      // ────────────────────────────────────────────────
+      y += 20;
+      ctx.fillStyle = '#eff6ff';
+      ctx.fillRect(0, y - 10, width, 80);
+
+      ctx.fillStyle = '#1e4ce4';
+      ctx.font = 'bold 18px Arial';
+      ctx.textAlign = 'left';
+      ctx.fillText('សរុប / Total', 20, y + 30);
+
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 24px Arial';
+      ctx.fillText(formatCurrency(orderData.total), width - 20, y + 35);
+
+      // Final Data URL
+      const dataUrl = canvas.toDataURL('image/png', 1.0);
+      resolve(dataUrl);
+    } catch (error) {
+      reject(error);
+    }
+  });
+};
+
+const autoSendToTelegram = async (imageDataUrl: any) => {
+  if (!orderId || !imageDataUrl) return;
+  
+  try {
+    setIsSending(true);
     
-    fetchOrderData();
-  }, [orderId, user?.role]);
+    // Get token
+    let token: string | null = null;
+    const isSalesMode = user?.role === 'sale';
+    
+    if (isSalesMode) {
+      token = localStorage.getItem('sales_token') || 
+              localStorage.getItem('auth_token') || 
+              sessionStorage.getItem('sales_token');
+    } else {
+      token = localStorage.getItem('auth_token') || 
+              localStorage.getItem('token') || 
+              sessionStorage.getItem('auth_token') ||
+              sessionStorage.getItem('token');
+    }
+    
+    if (!token) {
+      toast.error("Please log in to send invoice");
+      return;
+    }
+    
+    // Convert Data URL to blob
+    const blob = await (await fetch(imageDataUrl)).blob();
+    const formData = new FormData();
+    formData.append('invoice_image', blob, `លេខបង្កាន់ដៃ_${orderId}_បង្កាន់ដៃ.png`);
+    formData.append('order_id', orderId.toString());
+    
+    const response = await axios.post(
+      `${process.env.NEXT_PUBLIC_API_URL}/orders/${orderId}/send-telegram-invoice`,
+      formData,
+      {
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data'
+        }
+      }
+    );
+    
+    if (response.data.success) {
+      toast.success("Invoice sent to Telegram successfully!");
+      console.log('✅ Telegram send successful');
+    } else {
+      toast.error(response.data.message || "Failed to send invoice");
+      console.log('❌ Telegram send failed:', response.data.message);
+    }
+    
+  } catch (error: any) {
+    console.error('❌ Error sending invoice to Telegram:', error);
+    
+    // Don't reset hasSentRef on 500 error - it might have actually sent
+    if (error.response?.status !== 500) {
+      // Only reset for client errors (4xx), not server errors (5xx)
+      hasSentRef.current = false;
+    }
+    
+    if (error.response?.status === 500) {
+      // Server error - might have sent successfully but server failed to respond
+      toast.error("Invoice may have been sent (server error). Check Telegram.");
+    } else {
+      toast.error(error.response?.data?.message || "Error sending invoice");
+    }
+  } finally {
+    setIsSending(false);
+  }
+};
 
-  const handleDownload = () => {
-    if (!invoiceImage) return;
-    const a = document.createElement('a');
-    a.href = invoiceImage;
-    a.download = `ល.រ_${orderId}_បង្កាន់ដៃ.png`; // Receipt in Khmer
-    a.click();
-  };
+useEffect(() => {
+  console.log('🔍 useEffect triggered', {
+    orderId,
+    userRole: user?.role,
+    hasSentRef: hasSentRef.current,
+    isSalesMode: user?.role === 'sale'
+  });
 
-  const sendInvoiceToTelegram = async (imageDataUrl:any) => {
-    if (!orderId || !imageDataUrl) return;
+  const fetchOrderData = async () => {
+    if (!orderId) {
+      console.log('❌ No orderId, returning');
+      return;
+    }
     
     try {
       setIsLoading(true);
       
-      // Get token as you do in fetchOrderData
+      // Get token based on auth type
       let token: string | null = null;
       const isSalesMode = user?.role === 'sale';
+      
+      console.log('🔍 Token check - isSalesMode:', isSalesMode);
       
       if (isSalesMode) {
         token = localStorage.getItem('sales_token') || 
@@ -302,48 +335,92 @@ const page = () => {
                 sessionStorage.getItem('token');
       }
       
+      console.log('🔍 Token found:', !!token);
+      
       if (!token) {
-        toast.error("Please log in to send invoice");
+        toast.error("Please log in to view order details");
         return;
       }
-      
-      // Convert Data URL to blob
-      const blob = await (await fetch(imageDataUrl)).blob();
-      const formData = new FormData();
-      formData.append('invoice_image', blob, `ល.រ_${orderId}_បង្កាន់ដៃ.png`);
-      formData.append('order_id', orderId.toString());
-      
-      const response = await axios.post(
-        `${process.env.NEXT_PUBLIC_API_URL}/orders/${orderId}/send-telegram-invoice`,
-        formData,
-        {
-          withCredentials: true,
-          headers: {
-            'Authorization': `Bearer ${token}`,
-            'Content-Type': 'multipart/form-data'
-          }
+
+      // Fetch order details
+      console.log('🔍 Fetching order details...');
+      const res = await axios.get(`${process.env.NEXT_PUBLIC_API_URL}/online-orders/${orderId}`, {
+        withCredentials: true,
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Accept': 'application/json'
         }
-      );
+      });
       
-      if (response.data.success) {
-        toast.success("Invoice sent to Telegram successfully!");
-      } else {
-        toast.error(response.data.message || "Failed to send invoice");
+      console.log('🔍 Order API Response success:', res.data?.success);
+      
+      if (res.data?.success) {
+        const orderData = res.data.data;
+        setOrderDetails(orderData);
+
+        // Generate image
+        console.log('🔍 Generating invoice image...');
+        const imageUrl = await generateBoxImage(orderData, orderId);
+        setInvoiceImage(imageUrl);
+
+        // ✅ Check conditions
+        console.log('🔍 Auto-send conditions check:', {
+          userRole: user?.role,
+          isSales: user?.role === 'sale',
+          hasSent: hasSentRef.current,
+          imageUrlExists: !!imageUrl,
+          shouldSend: user?.role === 'sale' && !hasSentRef.current && !!imageUrl
+        });
+
+        if (user?.role === 'sale' && !hasSentRef.current && imageUrl) {
+          console.log('🚀 Auto-sending invoice to Telegram...');
+          hasSentRef.current = true;
+          
+          // Try/catch the auto-send separately
+          try {
+            await autoSendToTelegram(imageUrl);
+            console.log('✅ Auto-send completed');
+          } catch (sendError) {
+            console.error('❌ Auto-send failed:', sendError);
+            hasSentRef.current = false; // Reset to allow retry
+          }
+        } else {
+          console.log('⏭️ Auto-send skipped - conditions not met');
+        }
       }
+    } catch (err: any) {
+      console.error("❌ Error fetching order details:", err);
       
-    } catch (error: any) {
-      console.error('Error sending invoice to Telegram:', error);
-      toast.error(error.response?.data?.message || "Error sending invoice");
+      if (err.response?.status === 401) {
+        toast.error("Session expired. Please log in again.");
+      } else if (err.response?.status === 403) {
+        toast.error("You don't have permission to view this order");
+      } else if (err.response?.status === 404) {
+        toast.error("Order not found");
+      } else {
+        toast.error(err.response?.data?.message || "Error fetching order details");
+      }
     } finally {
       setIsLoading(false);
     }
+  };
+  
+  fetchOrderData();
+}, [orderId, user?.role]);
+
+  const handleDownload = () => {
+    if (!invoiceImage) return;
+    const a = document.createElement('a');
+    a.href = invoiceImage;
+    a.download = `លេខបង្កាន់ដៃ_${orderId}_បង្កាន់ដៃ.png`; // Receipt in Khmer
+    a.click();
   };
 
   const handleShare = async () => {
     if (!invoiceImage) return;
     try {
       const blob = await (await fetch(invoiceImage)).blob();
-      const file = new File([blob], `ល.រ_${orderId}_បង្កាន់ដៃ.png`, { type: 'image/png' });
+      const file = new File([blob], `លេខបង្កាន់ដៃ_${orderId}_បង្កាន់ដៃ.png`, { type: 'image/png' });
       if (navigator.share) await navigator.share({ files: [file] });
       else handleDownload();
     } catch (e) { handleDownload(); }
@@ -374,7 +451,7 @@ const page = () => {
             <div className="p-5 bg-slate-50 border-b">
               <div className="flex justify-between items-start">
                 <div>
-                  <h2 className="text-blue-600 font-black text-xl">ល.រ #{orderId}</h2>
+                  <h2 className="text-blue-600 font-black text-xl">លេខបង្កាន់ដៃ #{orderId}</h2>
                   <p className="text-xs text-gray-500">{formatDate(orderDetails.created_at)}</p>
                   {user?.role === 'sale' && orderDetails.salesperson_info && (
                     <p className="text-xs text-gray-600 mt-1">
