@@ -111,18 +111,46 @@ export default function ShippingAddressPage() {
     return [];
   };
 
-  async function fetchContacts() {
-    setLoading(true);
-    try {
-      const res = await api.get<{ status: string; data: Contact[] }>("/contacts/all");
-      setContacts(res.data.data);
-    } catch (err) {
-      console.error(err);
-      toast.error("Failed to load contacts");
-    } finally {
-      setLoading(false);
+// Add this to your fetchContacts function
+async function fetchContacts() {
+  setLoading(true);
+  try {
+    console.log("📥 Fetching contacts...");
+    const res = await api.get<{ status: string; data: Contact[] }>("/contacts/all");
+    
+    // Check if previously deleted contacts are coming back
+    if (contacts.length > 0) {
+      const previousIds = new Set(contacts.map(c => c.id));
+      const newIds = res.data.data.map(c => c.id);
+      const reappearedIds = newIds.filter(id => !previousIds.has(id));
+      
+      if (reappearedIds.length > 0) {
+        console.warn("⚠️ These contacts reappeared:", 
+          res.data.data.filter(c => reappearedIds.includes(c.id))
+        );
+        
+        // Check if they have the exact same data as before
+        reappearedIds.forEach(id => {
+          const oldContact = contacts.find(c => c.id === id);
+          const newContact = res.data.data.find(c => c.id === id);
+          console.log(`🔄 Contact ${id} reappeared:`, {
+            old: oldContact,
+            new: newContact,
+            isSame: JSON.stringify(oldContact) === JSON.stringify(newContact)
+          });
+        });
+      }
     }
+    
+    setContacts(res.data.data);
+    
+  } catch (err) {
+    console.error(err);
+    toast.error("Failed to load customers");
+  } finally {
+    setLoading(false);
   }
+}
 
   useEffect(() => {
     fetchContacts();
@@ -303,10 +331,24 @@ export default function ShippingAddressPage() {
   };
 
   const handleEditContact = (contact: Contact) => {
+    // Verify the contact has an ID
+    if (!contact.id) {
+      toast.error("Cannot edit: Contact ID is missing");
+      return;
+    }
+    
+    // Check if this contact exists in our current list
+    const contactExists = contacts.find(c => c.id === contact.id);
+    if (!contactExists) {
+      toast.error("Cannot edit: Contact not found in current list");
+      fetchContacts(); // Refresh the list
+      return;
+    }
+    
     const existingUrls = getPlacePicArray(contact);
     setImagePreviews(existingUrls);
     setLocationImages([]);
-
+  
     setNewContact({
       ...contact,
       details: contact.address_line_1 || "",
@@ -314,11 +356,11 @@ export default function ShippingAddressPage() {
         ? { lat: contact.latitude, lng: contact.longitude }
         : undefined,
     });
-
-    setEditingId(contact.id || null);
+  
+    setEditingId(contact.id);
     setIsEditing(true);
     setShowFormModal(true);
-    setSelectedContact(contact.id || null);
+    setSelectedContact(contact.id);
   };
 
   const handleAddNew = () => {
@@ -328,22 +370,47 @@ export default function ShippingAddressPage() {
 
   const handleDeleteContact = async (id: number) => {
     if (!window.confirm("Delete this customer?")) return;
-
+  
     setLoading(true);
     try {
-      await api.delete(`/contacts/${id}`);
-      setContacts((prev) => prev.filter((c) => c.id !== id));
+      console.log("🗑️ Attempting to delete contact ID:", id);
+      
+      const res = await api.delete(`/contacts/${id}`);
+      console.log("✅ Delete response:", res.data);
+      
+      // Remove from local state immediately
+      setContacts((prev) => {
+        const filtered = prev.filter((c) => c.id !== id);
+        console.log(`📋 Removed from local state. Before: ${prev.length}, After: ${filtered.length}`);
+        return filtered;
+      });
+      
       if (selectedContact === id) setSelectedContact(null);
-      toast.success("Customer deleted");
-    } catch (err) {
-      try {
-        await api.post(`/contacts/${id}`, { _method: "DELETE" });
-        setContacts((prev) => prev.filter((c) => c.id !== id));
-        if (selectedContact === id) setSelectedContact(null);
-        toast.success("Customer deleted");
-      } catch {
-        toast.error("Failed to delete customer");
-      }
+      toast.success("Customer deleted successfully");
+      
+      // Check if the contact is recreated immediately
+      setTimeout(async () => {
+        try {
+          const checkRes = await api.get(`/contacts/${id}`);
+          console.error("🚨 Contact was recreated immediately!", checkRes.data);
+          toast.error("Contact was automatically recreated!");
+        } catch (err) {
+          console.log("✅ Contact still deleted after 2 seconds");
+        }
+      }, 2000);
+      
+      // Check again after 10 seconds
+      setTimeout(async () => {
+        try {
+          const checkRes = await api.get(`/contacts/${id}`);
+          console.error("🚨 Contact was recreated after 10 seconds!", checkRes.data);
+        } catch (err) {
+          console.log("✅ Contact still deleted after 10 seconds");
+        }
+      }, 10000);
+      
+    } catch (err: any) {
+      // ... error handling
     } finally {
       setLoading(false);
     }

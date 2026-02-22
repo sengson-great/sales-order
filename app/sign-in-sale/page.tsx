@@ -15,22 +15,23 @@ const SalesLoginPage = () => {
   const [error, setError] = useState("");
   const { login } = useAuth();
 
-  const handleSalesLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setError("");
+const handleSalesLogin = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setError("");
 
-    if (!username || !password) {
-      setError("Please enter both username and password");
-      return;
-    }
+  try {
+    // Execution stops here if salesLogin throws an error
+    await salesLogin(username, password);
 
-    try {
-        await login('67', 'Sale');
-      await salesLogin(username, password);
-    } catch (err: any) {
-      setError(err.message || "Login failed");
-    }
-  };
+    // This line ONLY runs if salesLogin succeeded (did not throw)
+    await login('67', 'Sale');
+    
+    console.log("Both logins successful");
+  } catch (err: any) {
+    // If salesLogin fails, it jumps here immediately
+    setError("Invalid credentials");
+  }
+};
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
